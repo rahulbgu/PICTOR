@@ -1,0 +1,11 @@
+#!/bin/bash
+#    Begin PBS directives
+#PBS -A ast129
+#PBS -N test
+#PBS -j oe
+#PBS -l walltime=0:30:00,nodes=1
+#PBS -l gres=atlas1%atlas2
+#    End PBS directives and begin shell commands
+cd $MEMBERWORK/ast129/myPIC
+date
+aprun -n 1 ./PICTOR
