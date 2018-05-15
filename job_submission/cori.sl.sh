@@ -7,4 +7,4 @@
 #SBATCH --constraint=haswell
 #SBATCH --mail-user=rahuliitk@gmail.com
  
-srun -n 32 -c 4 ./PIC
+srun -n 32 -c 4 ./PICTOR

@@ -7,4 +7,4 @@
  
 export OMP_NUM_THREADS=1 # only needed for hybrid MPI/OpenMP codes built with "-qopenmp" flag
 
-srun -n 136 ./PIC
+srun -n 136 ./PICTOR

@@ -8,4 +8,4 @@
 #    End PBS directives and begin shell commands
 cd $MEMBERWORK/ast129/myPIC
 date
-aprun -n 1 ./PIC
+aprun -n 1 ./PICTOR

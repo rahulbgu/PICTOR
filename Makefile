@@ -94,27 +94,30 @@ endif
  
 FFLAGS= $(CUSTOM) $(FLAGS)
 EXECUTABLE= PICTOR
+VPATH=src
+OBJDIR=build
 
 ifeq ($(GPU_INCLUDE),y)
-OBJS= parameters.o vars.o var_gpu.o communication.o memory.o interpolation.o prtl_stats.o deposit.o $(MOVDEP) comm_fldprtl.o loadprtlout_gpu.o particles.o fields.o \
+OBJS= $(addprefix $(OBJDIR)/, parameters.o vars.o var_gpu.o communication.o memory.o interpolation.o prtl_stats.o deposit.o $(MOVDEP) comm_fldprtl.o loadprtlout_gpu.o particles.o fields.o \
 	 HDF5write.o savedata_routines.o comm_savedata.o comm_fld_gpu.o savedata_gpu.o savedata.o help_setup.o DerivedQnty.o comm_loadbalance.o loadbalance.o $(SETUP).o reload.o initialise.o \
-	 comm_prtl_gpu.o inc_scan.o thrust_module.o memory_gpu.o fields_gpu.o movdep_gpu.o initialise_gpu.o MAIN.o
+	 comm_prtl_gpu.o inc_scan.o thrust_module.o memory_gpu.o fields_gpu.o movdep_gpu.o initialise_gpu.o MAIN.o)
 else
-OBJS= parameters.o vars.o communication.o memory.o interpolation.o prtl_stats.o deposit.o $(MOVDEP) comm_fldprtl.o loadprtlout.o particles.o fields.o HDF5write.o\
-	 savedata_routines.o comm_savedata.o savedata.o help_setup.o DerivedQnty.o comm_loadbalance.o loadbalance.o $(SETUP).o reload.o initialise.o MAIN.o
+OBJS= $(addprefix $(OBJDIR)/, parameters.o vars.o communication.o memory.o interpolation.o prtl_stats.o deposit.o $(MOVDEP) comm_fldprtl.o loadprtlout.o particles.o fields.o HDF5write.o\
+	 savedata_routines.o comm_savedata.o savedata.o help_setup.o DerivedQnty.o comm_loadbalance.o loadbalance.o $(SETUP).o reload.o initialise.o MAIN.o)
 endif 
 
 all: $(EXECUTABLE)
 
-%.o:%.F90
-	$(FC) $(FFLAGS) $(INCPATH) -c $^
-%.o:%.cu
+$(OBJDIR)/%.o:%.F90
+	$(FC) $(FFLAGS) $(INCPATH) -c $^ -o $@
+$(OBJDIR)/%.o:%.cu -o $@
 	nvcc -c $^	
 
 $(EXECUTABLE): $(OBJS)
-	$(FC) $(FFLAGS) -o $@ $(OBJS) 
+	$(FC) $(FFLAGS) -o $@ $(OBJS)
+	mv *.mod $(OBJDIR)/
 
 clean: 
-	rm -f *.o
-	rm -f *.mod
+	rm -f $(OBJDIR)/*.o
+	rm -f $(OBJDIR)/*.mod
 	rm -f $(EXECUTABLE)
