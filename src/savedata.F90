@@ -350,23 +350,32 @@ contains
           
         call h5pcreate_f(H5P_FILE_ACCESS_F, plist, err)
         call h5pset_fapl_mpio_f(plist, MPI_COMM_WORLD, MPI_INFO_NULL , err)
-          call h5fcreate_f(fname, H5F_ACC_TRUNC_F, fid, err, access_prp = plist)
+        call h5fcreate_f(fname, H5F_ACC_TRUNC_F, fid, err, access_prp = plist)
         call h5pclose_f(plist, err)
           
 
-          data_dim3(1)=fdatax
-          data_dim3(2)=fdatay
-          data_dim3(3)=fdataz
+        data_dim3(1)=fdatax
+        data_dim3(2)=fdatay
+        data_dim3(3)=fdataz
         call h5screate_simple_f(rank, data_dim3, memspace, err)
-          data_dim3(1)=(xf-xi)/fsave_ratio+1
-          data_dim3(2)=(yf-yi)/fsave_ratio+1
+        data_dim3(1)=(xf-xi)/fsave_ratio+1
+        data_dim3(2)=(yf-yi)/fsave_ratio+1
 #ifdef twoD
         data_dim3(3)=1
 #else
         data_dim3(3)=(zf-zi)/fsave_ratio+1
 #endif          
         call h5screate_simple_f(rank, data_dim3, dspace_id, err)
-          
+        
+		!Set the chunk-size
+        chunk_dim3(1)=nx/(fsave_ratio*nSubDomainsX)
+        chunk_dim3(2)=ny/(fsave_ratio*nSubDomainsY)
+        chunk_dim3(3)=nz/(fsave_ratio*nSubDomainsZ)
+#ifdef twoD
+        chunk_dim3(3)=1
+#endif
+		
+		  
           if(fldid.eq.0.or.fldid.eq.1) then      
               call save_fields_arr_collective(Ex,'Ex',1)
               call save_fields_arr_collective(Ey,'Ey',3)
@@ -421,7 +430,14 @@ contains
           local_data_dim(1)=fdatax
           local_data_dim(2)=fdatay
           local_data_dim(3)=fdataz
-          call h5dcreate_f(fid,vname, H5T_NATIVE_REAL, dspace_id, dset_id,err)          
+		  	  	  
+		  
+		  call h5pcreate_f(H5P_DATASET_CREATE_F, plist, err)
+	      call h5pset_chunk_f(plist, rank, chunk_dim3, err)
+          call h5dcreate_f(fid,vname, H5T_NATIVE_REAL, dspace_id, dset_id,err,plist)
+		  call h5pclose_f(plist, err)    
+		  
+          !call h5dcreate_f(fid,vname, H5T_NATIVE_REAL, dspace_id, dset_id,err)        
           call h5dget_space_f(dset_id, dspace_this, err)
           call h5sselect_hyperslab_f(dspace_this,H5S_SELECT_SET_F,offset3,local_data_dim,err)
           call h5pcreate_f(H5P_DATASET_XFER_F, plist, err) 
@@ -567,7 +583,7 @@ subroutine save_prtl_mean
      call SumPrtlQntyMain
      call ReduceSumPrtlQntyAll
      if(proc.eq.0) then !now save the data on master proc.
-         meanKE=real(sumQxKE/sumQ)
+          meanKE=real(sumQxKE/sumQ)
           meanExVx=real(sumQxExVx/sumQ)
           meanEyVy=real(sumQxEyVy/sumQ)
           meanEzVz=real(sumQxEzVz/sumQ)
@@ -668,9 +684,9 @@ end subroutine save_spec_master_all_prtl
           
            if(proc.eq.0) then
               rank=3
-                   data_dim3(1)=Nflvr
-                data_dim3(2)=Speed_spec_binlen
-                data_dim3(3)=1
+              data_dim3(1)=Nflvr
+              data_dim3(2)=Speed_spec_binlen
+              data_dim3(3)=1
               call h5screate_simple_f(rank,data_dim3,dspace_id,err)
               call h5dcreate_f(fid,'vspec',H5T_NATIVE_DOUBLE,dspace_id,dset_id,err)
               call h5dwrite_f(dset_id,H5T_NATIVE_DOUBLE,spec_speed,data_dim3,err)
