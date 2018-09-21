@@ -367,12 +367,15 @@ contains
 #endif          
         call h5screate_simple_f(rank, data_dim3, dspace_id, err)
         
-		!Set the chunk-size
-        chunk_dim3(1)=nx/(fsave_ratio*nSubDomainsX)
-        chunk_dim3(2)=ny/(fsave_ratio*nSubDomainsY)
-        chunk_dim3(3)=nz/(fsave_ratio*nSubDomainsZ)
+		!Set the chunk-size for HDF5 files, an optimial chunk size on a specific machine can differ
 #ifdef twoD
+        chunk_dim3(1)=min(512,nx/fsave_ratio+1)
+        chunk_dim3(2)=min(2048,ny/fsave_ratio+1)
         chunk_dim3(3)=1
+#else
+        chunk_dim3(1)=min(128,nx/fsave_ratio+1)
+        chunk_dim3(2)=min(128,ny/fsave_ratio+1)
+        chunk_dim3(3)=min(128,nz/fsave_ratio+1)	
 #endif
 		
 		  
