@@ -28,13 +28,14 @@ contains
           j2=floor(y)
           k1=floor(z0)
           k2=floor(z)
-#ifdef twoD
-        k1=1
-        k2=1
-#endif
-               xr=min(real(min(i1,i2)+1),max(real(max(i1,i2)),0.5_psn*(x0+x)))
-               yr=min(real(min(j1,j2)+1),max(real(max(j1,j2)),0.5_psn*(y0+y)))
-               zr=min(real(min(k1,k2)+1),max(real(max(k1,k2)),0.5_psn*(z0+z)))
+! #ifdef twoD
+!         k1=1
+!         k2=1
+! #endif
+          xr=min(real(min(i1,i2)+1,psn),max(real(max(i1,i2),psn),0.5_psn*(x0+x)))
+          yr=min(real(min(j1,j2)+1,psn),max(real(max(j1,j2),psn),0.5_psn*(y0+y)))
+          zr=min(real(min(k1,k2)+1,psn),max(real(max(k1,k2),psn),0.5_psn*(z0+z)))
+			   
           Fx1=qthis*(xr-x0)
           Fy1=qthis*(yr-y0)
           Fz1=qthis*(zr-z0)
@@ -46,6 +47,8 @@ contains
           Wy2=0.5_psn*(y+yr)-j2
           
 #ifdef twoD
+		  k1=1
+		  k2=1
           Wz1=0.0_psn
           Wz2=0.0_psn
 #else

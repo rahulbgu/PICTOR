@@ -4,6 +4,13 @@ module loadbalance
      use memory
 	 use movdep
      use comm_loadbalance
+	 use initialise
+#ifdef gpu	 
+	 use loadbalance_gpu
+	 use fields_gpu
+	 use particles_gpu
+	 use initialise_gpu
+#endif	 
      use fields, only : ExchangeYZEdgeField, ExchangeZXEdgeField, ExchangeXYEdgeField !use of theses subroutine can be avoided  
      implicit none 
      integer :: mx_new,my_new,mz_new !new size of the fld arrays, used in load redistribution 
@@ -13,8 +20,55 @@ module loadbalance
      real, dimension(0:nSubDomainsX*nSubDomainsY*nSubDomainsZ-1) :: TotalTime
 #endif	 
 	 real, dimension(0:nSubDomainsX-1) :: TotalTimeX 
+	 
+#ifdef twoD
+     real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:0) :: exectime_grid
+#else 
+     real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:nSubDomainsZ-1) :: exectime_grid
+#endif 		 
+	 real(dbpsn), dimension(-1:nx) :: npx !Note: the range 1:nx should be extended in case of periodic boundary condition, or use SendRecvPrtl twice
       
 contains 
+	
+!---------------------------------------------------------------------------
+! Following subroutines are for computing and using "npx"; particle density along the x-direction (cell-by-cell)
+!---------------------------------------------------------------------------	
+	subroutine CalcNumPrtlX
+		integer :: n, ind, shift
+		npx=0
+		shift=xborders(procxind(proc))-3 ! "shift" gives the global cordinate
+#ifdef gpu
+        call CalcNumPrtlX_GPU(npx,shift)
+#else
+		do n=1,used_prtl_arr_size
+			if(qp(n).eq.0) continue
+			ind=xp(n)+shift
+			npx(ind)=npx(ind)+1
+		end do
+		do n=1,used_test_prtl_arr_size
+			if(qtp(n).eq.0) continue
+			ind=xtp(n)+shift
+			npx(ind)=npx(ind)+1
+		end do
+#endif		
+	end subroutine CalcNumPrtlX
+	
+	subroutine NumPrtlX_CDF
+		integer :: n
+		real(dbpsn) :: sum
+		
+		npx(-1)=0
+		npx(nx)=0 !particles beyond the regular boundaries are ignored
+		sum=0
+		do n=0,nx
+			sum=sum+npx(n) 
+		end do
+		do n=1,nx
+			npx(n)=npx(n)+npx(n-1)
+		end do
+		npx=npx/sum
+	end subroutine NumPrtlX_CDF 
+	
 !------------------------------------------------------------------------------
 !The following subroutines are helpful in the case of inhomogenous plasma,such as shock, when physical domain on proc is allowed to change 
 !------------------------------------------------------------------------------
@@ -165,12 +219,6 @@ contains
 !-------------------------------------------------------------------------------------
  subroutine LoadBalanceY
       integer :: i,j,k,dYdomain 
-#ifdef twoD
-      real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:0) :: exectime_grid
-#else 
-      real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:nSubDomainsZ-1) :: exectime_grid
-#endif 	  
-
       real, dimension(0:nSubDomainsY-1) :: Max_TotalTime_column
       real :: time_temp
       logical :: yborders_changed
@@ -236,12 +284,6 @@ contains
  
  subroutine LoadBalanceYRecn
       integer :: i,j,k,dYdomain 
-#ifdef twoD
-      real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:0) :: exectime_grid
-#else 
-      real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:nSubDomainsZ-1) :: exectime_grid
-#endif 	  
-
       real, dimension(0:nSubDomainsY-1) :: Max_TotalTime_column
       real :: time_temp
       logical :: yborders_changed
@@ -321,21 +363,13 @@ contains
  subroutine LoadBalanceShock(xinj,xwall)
       integer :: i,j,k,xwall,dXdomain
 	  real(dbpsn) :: xinj 
-#ifdef twoD
-      real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:0) :: exectime_grid
-#else 
-      real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:nSubDomainsZ-1) :: exectime_grid
-#endif 	  
-
       real, dimension(0:nSubDomainsX-1) :: Max_TotalTime_column
       real :: time_temp
 	  real(psn) :: mean_dx 
       integer :: loadbalance_profiling_ind
 	  integer :: xinj_proc
-      logical :: xborders_changed
       save loadbalance_profiling_ind
       data loadbalance_profiling_ind /1/
-      xborders_changed=.false.
       !profile the performance history of all processors before making any decison about balancing the laod
 !       if(modulo(t,loadbalance_profiling_period).eq.0) then
 !            if(loadbalance_profiling_ind.gt.10) loadbalance_profiling_ind=1
@@ -399,36 +433,33 @@ contains
 		   !mean_dx=real(xborders(xinj_proc)-xwall)/real(3*xinj_proc) !Half of average domain size on each proc
 		   !print*,'mean_dx',mean_dx,xborders(xinj_proc),fsave_ratio*floor(mean_dx/fsave_ratio)
 		   !if(xinj.gt.xborders(xinj_proc)+mean_dx) then 
-			   !if(xinj_proc.gt.0) 
+		   if(xinj_proc.gt.0) then 
 			   xborders_new(xinj_proc)=xborders(xinj_proc)+fsave_ratio*floor(real(xinj-xborders(xinj_proc))/fsave_ratio)
-			   !end if 
-		   
-		   
-		   
-! 		   if(proc.eq.0) then
-! 		print*,'xborders',xborders
-! 		print*,'xborders_new',xborders_new
-! 		if(proc.eq.0) print*,'Time',Max_TotalTime_column,exec_time(32)
-! 	end if
+		   end if 
 	
-	       do i=0,nSubDomainsX
-			    if(abs(xborders_new(i)-xborders(i)).gt.0) xborders_changed=.true.
-		   end do  
-		  
-           if(xborders_changed) then
-                if(proc.eq.0) then 
-					print*,'Adjusting the Xborders to balance the Load ...'
-				    !print*,'xborders',xborders
-				    !print*,'xborders_new',xborders_new
-				end if
-                call SetNewXBorders
-	            call ReorderPrtlArr
-				call ReorderTestPrtlArr
-           end if
+           call CommitNewBordersX
 
        end if
 
  end subroutine LoadBalanceShock
+ 
+ subroutine CommitNewBordersX
+	 logical :: xborders_changed
+	 integer :: i
+	 xborders_changed=.false.
+     do i=0,nSubDomainsX
+	    if(abs(xborders_new(i)-xborders(i)).gt.0) xborders_changed=.true.
+     end do  
+
+     if(xborders_changed) then
+		if(proc.eq.0) print*,'Load Balancing:: adjusting the subdomain size along the x-direction' 
+        call SetNewXBorders
+        call ReorderPrtlArr
+		call ReorderTestPrtlArr
+     end if
+	 
+ end subroutine CommitNewBordersX
+	 
  
  
  
@@ -437,21 +468,16 @@ contains
 	  implicit none 
 	  integer :: i,j,k
 	  real(dbpsn) :: xinj 
-#ifdef twoD
-      real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:0) :: exectime_grid
-#else 
-      real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:nSubDomainsZ-1) :: exectime_grid
-#endif 	  
+  
 
       real, dimension(0:nSubDomainsX-1) :: Max_TotalTime_column
       real :: time_temp
 	  real(psn) :: mean_dx 
       integer :: loadbalance_profiling_ind
 	  integer :: xinj_proc_left,xinj_proc_right
-      logical :: xborders_changed
       save loadbalance_profiling_ind
       data loadbalance_profiling_ind /1/
-      xborders_changed=.false.
+
       !profile the performance history of all processors before making any decison about balancing the laod
 !       if(modulo(t,loadbalance_profiling_period).eq.0) then
 !            if(loadbalance_profiling_ind.gt.10) loadbalance_profiling_ind=1
@@ -543,22 +569,7 @@ contains
 		   
 		  		   
    		   !if(proc.eq.0) print*,'Time',Max_TotalTime_column,exec_time(32)
-	
-	
-	       do i=0,nSubDomainsX
-			    if(abs(xborders_new(i)-xborders(i)).gt.0) xborders_changed=.true.
-		   end do  
-		  
-           if(xborders_changed) then
-                if(proc.eq.0) then 
-					print*,'Adjusting the Xborders to balance the Load ...'
-				    !print*,'xborders',xborders
-				    !print*,'xborders_new',xborders_new
-				end if
-                call SetNewXBorders
-	            call ReorderPrtlArr
-	            call ReorderTestPrtlArr
-           end if
+		   call CommitNewBordersX
 
        end if
 
@@ -578,13 +589,6 @@ contains
       average=sum/len     
  end function average
 
-subroutine DefineNewBorders_default
-    !call BcastExecTime
-     xborders_new=xborders !nothing is changed 
-end subroutine DefineNewBorders_default
-
-
-
 
  subroutine SetNewXBorders
      integer :: i,procxind_this
@@ -600,31 +604,62 @@ end subroutine DefineNewBorders_default
           if((xborders(procxind_this+1).le.xborders_new(i+1)).and.(xborders(procxind_this+1).gt.xborders_new(i))) rmost_send=i                    
      end do
 	 
+	 if(xborders_new(procxind_this).eq.xborders(procxind_this)) then
+		 lmost_send=procxind_this
+		 lmost_recv=procxind_this
+	 end if
+	 if(xborders_new(procxind_this+1).eq.xborders(procxind_this+1)) then
+		 rmost_send=procxind_this
+		 rmost_recv=procxind_this
+	 end if
+	 
+     !Send-Recieve EM field 
+#ifdef gpu	 
+	 call RecvFullDomainEMFldFromGPU
+	 call RecvFullDomainCurrFromGPU
+#endif	
+
+#ifdef cyl	 
+	 if((inc_axis.eqv..true.).and.(procxind_this.eq.0)) then
+		 call UpdateAllEdgeFlds 
+		 xborders=xborders_new 
+		 return ! leave the the Axis proc unaltered
+	 end if 
+#endif	 
+	 
 	 !determine x-index of grid points that need to be transferred 
      allocate(segment_borders_send(lmost_send:rmost_send+1)) 
      allocate(segment_borders_recv(lmost_recv:rmost_recv+1))
      call DetermineLocalXBorders(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv)
           
      mx_new=xborders_new(procxind_this+1)-xborders_new(procxind_this)+5!new local domain size 
-     my_new=my !this subroutine is designed to change domain only in x-direction
+	 my_new=my !this subroutine is designed to change the size of subdomains only in x-direction
      mz_new=mz
 
      deallocate(F0)
      allocate(F0(mx_new,my_new,mz_new))
-
-     !Send-Recieve EM field 
+	 if(proc.eq.0) then 
+		 print*,xborders
+		 print*,xborders_new
+	 end if
+	  
 	 call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,Ex,1)
      call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,Ey,2)
      call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,Ez,3)
      call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,Bx,4)
      call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,By,5)
      call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,Bz,6)
+     call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,Jx,7)
+     call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,Jy,8)
+     call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,Jz,9)
 	 if(nMoverEMfilter.gt.0) then 
 		 call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,filteredEx,7)
 	     call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,filteredEy,8)
 	     call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,filteredEz,9)
 	 end if
+	  
      !Now Send-Recieve particle data
+	
      call SendRecvPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv)
      call SendRecvTestPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv)
 
@@ -637,11 +672,6 @@ end subroutine DefineNewBorders_default
      xmax=mx-2
      xlen=xmax-3
 
-     deallocate(Jx,Jy,Jz)
-     allocate(Jx(mx,my,mz),Jy(mx,my,mz),Jz(mx,my,mz))
-     Jx=0.0_psn!reset the current 
-     Jy=0.0_psn
-     Jz=0.0_psn 
      deallocate(buff_tJx,buff_tJy,buff_tJz,buff_bJx,buff_bJy,buff_bJz)
      allocate(buff_bJx(mx,3,mz),buff_tJx(mx,3,mz),buff_bJy(mx,3,mz),buff_tJy(mx,3,mz),buff_bJz(mx,3,mz),buff_tJz(mx,3,mz)) 
 #ifndef twoD	 
@@ -651,13 +681,34 @@ end subroutine DefineNewBorders_default
 
      call ReshapeShortMoverFldArr
 	 	 
+	 call UpdateAllEdgeFlds
+	 
+#ifdef gpu
+     call SetDomainSizeGPU
+	 call DeallocateFldGPU
+	 call AllocateFldGPU
+
+	 
+     call SendFullDomainEMFldToGPU
+	 call SendFullDomainCurrToGPU
+	 call SetThreadBlockGrid
+	 !call ResetCurrentGPU
+#endif		 
+
+     xborders=xborders_new !now update the x-borders   
+end subroutine SetNewXborders
+
+subroutine UpdateAllEdgeFlds
 	 call ExchangeYZEdgeField(Ex,Ey,Ez)
      call ExchangeYZEdgeField(Bx,By,Bz) 
+	 call ExchangeYZEdgeField(Jx,Jy,Jz) 
      call ExchangeZXEdgeField(Ex,Ey,Ez)
      call ExchangeZXEdgeField(Bx,By,Bz)
+	 call ExchangeZXEdgeField(Jx,Jy,Jz)
 #ifndef twoD      
      call ExchangeXYEdgeField(Ex,Ey,Ez)
      call ExchangeXYEdgeField(Bx,By,Bz)
+	 call ExchangeXYEdgeField(Jx,Jy,Jz)
 #endif 
 if(nMoverEMfilter.gt.0) then 
 	 call ExchangeYZEdgeField(filteredEx,filteredEy,filteredEz)
@@ -665,11 +716,8 @@ if(nMoverEMfilter.gt.0) then
 #ifndef twoD      
      call ExchangeXYEdgeField(filteredEx,filteredEy,filteredEz)
 #endif 
-end if
-
-
-     xborders=xborders_new !now update the x-borders   
-end subroutine SetNewXborders
+end if	
+end subroutine UpdateAllEdgeFlds
 
 subroutine DetermineLocalXBorders(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv)
      integer :: i,procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv     
@@ -678,13 +726,22 @@ subroutine DetermineLocalXBorders(procxind_this,lmost_send,rmost_send,lmost_recv
      ! local boundaries of all segments in old data 
      do i=lmost_send,rmost_send
           segment_borders_send(i)=max(xborders(procxind_this),xborders_new(i))-xborders(procxind_this)+3
-          segment_borders_send(i+1)=min(xborders(procxind_this+1),xborders_new(i+1))-xborders(procxind_this)+3 !can be optimised 
+          segment_borders_send(i+1)=min(xborders(procxind_this+1),xborders_new(i+1))-xborders(procxind_this)+3 
      end do
      !local borders of all segments in new data
      do i=lmost_recv,rmost_recv
           segment_borders_recv(i)=max(xborders_new(procxind_this),xborders(i))-xborders_new(procxind_this)+3
           segment_borders_recv(i+1)=min(xborders_new(procxind_this+1),xborders(i+1))-xborders_new(procxind_this)+3  
      end do 
+	 
+	 if(procxind(proc).eq.0) then !in case the boundary conditions are not periodic
+		  segment_borders_recv(0)=1
+		  segment_borders_send(0)=1
+	 end if
+	 if(procxind(proc).eq.nSubDomainsX-1) then 
+	      segment_borders_recv(nSubDomainsX)=segment_borders_recv(nSubDomainsX)+3
+		  segment_borders_send(nSubDomainsX)=segment_borders_send(nSubDomainsX)+3
+	 end if 
 end subroutine DetermineLocalXBorders
 
 subroutine SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,Fld,tag)
@@ -697,18 +754,18 @@ subroutine SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,r
      j=procyind(proc)
 	 k=proczind(proc)
       
-
     if((procxind_this.ge.lmost_send).and.(procxind_this.le.rmost_send))  then !copy the data that already exist on this proc
           F0(segment_borders_recv(procxind_this):segment_borders_recv(procxind_this+1)-1,:,:)=Fld(segment_borders_send(procxind_this):segment_borders_send(procxind_this+1)-1,:,:)
-    end if
+	end if
 
      do i=min(lmost_send,lmost_recv),max(rmost_send,rmost_recv)
           if(i.eq.procxind_this) cycle
           if((i.ge.lmost_send).and.(i.le.rmost_send)) then 
                call SendFldToNewProcX(proc_grid(i,j,k),segment_borders_send(i),segment_borders_send(i+1)-1,Fld,tag)
+			   
           else if((i.ge.lmost_recv).and.(i.le.rmost_recv)) then 
-               call RecvFldFromOldProcX(proc_grid(i,j,k),segment_borders_recv(i),segment_borders_recv(i+1)-1,F0,tag,mx_new,my_new,mz_new) !Recieve data from other proc
-          end if
+               call RecvFldFromOldProcX(proc_grid(i,j,k),segment_borders_recv(i),segment_borders_recv(i+1)-1,F0,tag,mx_new,my_new,mz_new) !Recieve data from other proc			  
+		  end if
      end do
      
 	 deallocate(Fld)
@@ -731,13 +788,15 @@ subroutine SendRecvPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,
      integer, dimension(lmost_recv:rmost_recv+1)::segment_borders_recv
      integer, dimension(lmost_send:rmost_send):: segment_np_send,prtl_start_ind
      integer, dimension(lmost_recv:rmost_recv):: segment_np_recv
-
-     
      !scan through the particle data to get the size of the data to be sent to each proc
      extent_send=segment_borders_send ! an extended border is needed to include corner and edge particles
      extent_send(rmost_send+1)=extent_send(rmost_send+1)+1 
      extent_send(lmost_send)=extent_send(lmost_send)-1
      segment_np_send=0
+
+#ifdef gpu
+     call CountPrtlSegmentsX_GPU(xp_gpu,yp_gpu,zp_gpu,up_gpu,vp_gpu,wp_gpu,qp_gpu,tagp_gpu,flvp_gpu,var1p_gpu,extent_send,segment_np_send,lmost_send,rmost_send)
+#else	 
      do n=1,used_prtl_arr_size
           if(qp(n).eq.0) cycle
           i=lmost_send
@@ -749,6 +808,7 @@ subroutine SendRecvPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,
                i=i+1
           end do 
      end do 
+#endif 	 
 
      !find the offset value for each proc
      pcount=1
@@ -779,9 +839,12 @@ subroutine SendRecvPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,
               call RecvPrtlSizeFromOldProc(proc_grid(i,j,k),segment_np_recv(i))
                incoming_np=incoming_np+segment_np_recv(i)     
           end if
-     end do
-     
-     !now load outliers in all segments in psend array, ready to be sent in parts to it's new proc 
+     end do  
+	 
+#ifdef gpu
+     call MoveSendPrtlToHost(xp_gpu,yp_gpu,zp_gpu,up_gpu,vp_gpu,wp_gpu,qp_gpu,tagp_gpu,flvp_gpu,var1p_gpu,used_prtl_arr_size,extent_send(procxind_this),extent_send(procxind_this+1),xborders(procxind_this)-xborders_new(procxind_this)) 
+#endif     
+	 !now load outliers in all segments in psend array, ready to be sent in parts to it's new proc 
      segment_np_send=0 !reinitialise to recount particle, but this time load them in ptemp
      do n=1,used_prtl_arr_size
           if(qp(n).eq.0) cycle
@@ -802,7 +865,7 @@ subroutine SendRecvPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,
           end do 
      end do 
      
-     
+
      
      !Now send the particles to their new proc
      np=np+incoming_np !update number of particles 
@@ -810,19 +873,30 @@ subroutine SendRecvPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,
 
      precv_size=maxval(segment_np_recv)
      allocate(precv(precv_size))
-
      do i=min(lmost_send,lmost_recv),max(rmost_send,rmost_recv)
           if(i.eq.procxind_this) cycle 
           if((i.ge.lmost_send).and.(i.le.rmost_send)) then 
-              call SendPrtlToNewProc(proc_grid(i,j,k),prtl_start_ind(i),prtl_start_ind(i)+segment_np_send(i)-1,segment_np_send(i),psend,psend_size)     
+              call SendPrtlToNewProc(proc_grid(i,j,k),prtl_start_ind(i),prtl_start_ind(i)+segment_np_send(i)-1,segment_np_send(i),psend,psend_size)   
           else if((i.ge.lmost_recv).and.(i.le.rmost_recv)) then 
                call RecvPrtlFromOldProc(proc_grid(i,j,k),segment_np_recv(i),segment_np_recv(i),precv,precv_size,segment_borders_recv(i),0)
           end if
      end do
-     
+
+     used_prtl_arr_size=prtl_arr_size
+#ifdef gpu
+     call ReorderPrtlArr
+     call ReorderTestPrtlArr
+	 call ReorderPrtlArrGPU
+	 call ReorderTestPrtlArrGPU
+	 call SendPrtlToGPU(prtl_arr_size,xp,yp,zp,up,vp,wp,qp,tagp,flvp,var1p,buff_size_prtl_gpu,used_prtl_arr_size)
+	 call SendTestPrtlToGPU(test_prtl_arr_size,xtp,ytp,ztp,utp,vtp,wtp,qtp,tagtp,flvtp,var1tp,buff_size_test_prtl_gpu,used_test_prtl_arr_size)
+#endif	 
+
      deallocate(psend) !free the memory that was used to send-recv particles      
      deallocate(precv)
-     used_prtl_arr_size=prtl_arr_size
+#ifdef gpu
+     call ClearPrtlArrCPU
+#endif	 
 end subroutine SendRecvPrtlSegmentsX
 
 
@@ -967,6 +1041,9 @@ end subroutine SendRecvTestPrtlSegmentsX
      call SendRecvFldSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,tmost_recv,segment_borders_send,segment_borders_recv,Bx,4)
      call SendRecvFldSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,tmost_recv,segment_borders_send,segment_borders_recv,By,5)
      call SendRecvFldSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,tmost_recv,segment_borders_send,segment_borders_recv,Bz,6)
+     call SendRecvFldSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,tmost_recv,segment_borders_send,segment_borders_recv,Jx,7)
+     call SendRecvFldSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,tmost_recv,segment_borders_send,segment_borders_recv,Jy,8)
+     call SendRecvFldSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,tmost_recv,segment_borders_send,segment_borders_recv,Jz,9)
 	 if(nMoverEMfilter.gt.0) then 
 		 call SendRecvFldSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,tmost_recv,segment_borders_send,segment_borders_recv,filteredEx,7)
 	     call SendRecvFldSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,tmost_recv,segment_borders_send,segment_borders_recv,filteredEy,8)
@@ -985,11 +1062,6 @@ end subroutine SendRecvTestPrtlSegmentsX
      ymax=my-2
      ylen=ymax-3
 
-     deallocate(Jx,Jy,Jz)
-     allocate(Jx(mx,my,mz),Jy(mx,my,mz),Jz(mx,my,mz))
-     Jx=0.0_psn!reset the current 
-     Jy=0.0_psn
-     Jz=0.0_psn 
      deallocate(buff_rJx,buff_rJy,buff_rJz,buff_lJx,buff_lJy,buff_lJz)
      allocate(buff_lJx(3,my,mz),buff_rJx(3,my,mz),buff_lJy(3,my,mz),buff_rJy(3,my,mz),buff_lJz(3,my,mz),buff_rJz(3,my,mz)) 
 #ifndef twoD	 
@@ -1001,11 +1073,14 @@ end subroutine SendRecvTestPrtlSegmentsX
 	 	 
 	 call ExchangeYZEdgeField(Ex,Ey,Ez)
      call ExchangeYZEdgeField(Bx,By,Bz) 
+	 call ExchangeYZEdgeField(Jx,Jy,Jz) 
      call ExchangeZXEdgeField(Ex,Ey,Ez)
      call ExchangeZXEdgeField(Bx,By,Bz)
+	 call ExchangeZXEdgeField(Jx,Jy,Jz)
 #ifndef twoD      
      call ExchangeXYEdgeField(Ex,Ey,Ez)
      call ExchangeXYEdgeField(Bx,By,Bz)
+	 call ExchangeXYEdgeField(Jx,Jy,Jz)
 #endif 
 if(nMoverEMfilter.gt.0) then 
 	 call ExchangeYZEdgeField(filteredEx,filteredEy,filteredEz)

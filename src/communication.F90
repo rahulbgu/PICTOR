@@ -14,29 +14,6 @@ contains
           call mpi_comm_rank(MPI_COMM_WORLD,proc,ierr)
           call mpi_comm_size(MPI_COMM_WORLD,nproc,ierr)
           
-          lproc=proc-1
-          rproc=proc+1
-          if(modulo(proc,nSubDomainsX).eq.0) lproc=proc+nSubDomainsX-1
-          if(modulo(proc+1,nSubDomainsX).eq.0) rproc=proc-(nSubDomainsX-1)
-          
-          tproc=proc+nSubDomainsX
-          bproc=proc-nSubDomainsX
-#ifdef twoD
-          if(proc.ge.nSubDomainsX*(nSubDomainsY-1)) tproc=proc-nSubDomainsX*(nSubDomainsY-1)
-         if(proc.lt.nSubDomainsX) bproc=proc+nSubDomainsX*(nSubDomainsY-1) 
-#else 
-        if((proc-nSubDomainsX*nSubDomainsY*int(proc/(nSubDomainsX*nSubDomainsY))).ge.nSubDomainsX*(nSubDomainsY-1)) tproc=proc-nSubDomainsX*(nSubDomainsY-1)
-        if((proc-nSubDomainsX*nSubDomainsY*int(proc/(nSubDomainsX*nSubDomainsY))).lt.nSubDomainsX) bproc=proc+nSubDomainsX*(nSubDomainsY-1)  
-#endif               
-
-#ifndef twoD
-        uproc=proc+nSubDomainsX*nSubDomainsY
-          dproc=proc-nSubDomainsX*nSubDomainsY
-          if(proc.ge.nSubDomainsX*nSubDomainsY*(nSubDomainsZ-1)) uproc=proc-nSubDomainsX*nSubDomainsY*(nSubDomainsZ-1)
-          if(proc.lt.nSubDomainsX*nSubDomainsY) dproc=proc+nSubDomainsX*nSubDomainsY*(nSubDomainsZ-1)          
-#endif                
-
-          
           !  a) set the precision for mpi data transfer b)Create data type for particle transfer 
           ! **Warning**: The following must be modified if the structure of particle datatype is changed  
           nblocks=0
@@ -93,5 +70,12 @@ contains
 #endif		  
      end subroutine StopTimer
      
+	 subroutine Abort(err_code)
+		 integer :: err_code
+		 if(err_code.eq.12) then 
+			 if(proc.eq.0) print*,'Low memory! Too many particles on GPU!'
+		 end if
+		 call MPI_Abort(MPI_COMM_WORLD, err_code, ierr)
+	 end subroutine Abort
      
 end module communication 

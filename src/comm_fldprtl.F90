@@ -1,5 +1,8 @@
 module comm_fldprtl
      use communication
+#ifdef cyl
+     use cyl_comm_fldprtl
+#endif	 
      implicit none
                                         
 contains 
@@ -63,7 +66,9 @@ contains
           
           call MPI_SENDRECV(Jz(1:3,:,:),dcount1,mpi_psn,lproc,0,buff_rJz,dcount1,mpi_psn,rproc,0,MPI_COMM_WORLD,stat,mpi_err)
           call MPI_SENDRECV(Jz(mx-2:mx,:,:),dcount1,mpi_psn,rproc,1,buff_lJz,dcount1,mpi_psn,lproc,1,MPI_COMM_WORLD,stat,mpi_err)
-          
+#ifdef cyl 
+          call  ExchangeYZEdgeCurrent_Axis
+#endif 		     
      end subroutine ExchangeYZEdgeCurrent
      subroutine ExchangeZXEdgeCurrent
           integer :: stat(MPI_STATUS_SIZE)
@@ -97,7 +102,7 @@ contains
           real(psn), dimension(mx,my,mz) :: Fldx,Fldy,Fldz 
           integer :: dcount1,dcount2,mpi_err
           integer :: stat(MPI_STATUS_SIZE)
-          dcount1=3*my*mz
+		  dcount1=3*my*mz
           dcount2=2*my*mz
           call MPI_SENDRECV(Fldx(3:5,:,:),dcount1,mpi_psn,lproc,1,Fldx(mx-2:mx,:,:),dcount1,mpi_psn,rproc,1,MPI_COMM_WORLD,stat,mpi_err)
           call MPI_SENDRECV(Fldx(mx-4:mx-3,:,:),dcount2,mpi_psn,rproc,2,Fldx(1:2,:,:),dcount2,mpi_psn,lproc,2,MPI_COMM_WORLD,stat,mpi_err)
@@ -107,6 +112,9 @@ contains
           
           call MPI_SENDRECV(Fldz(3:5,:,:),dcount1,mpi_psn,lproc,1,Fldz(mx-2:mx,:,:),dcount1,mpi_psn,rproc,1,MPI_COMM_WORLD,stat,mpi_err)
           call MPI_SENDRECV(Fldz(mx-4:mx-3,:,:),dcount2,mpi_psn,rproc,2,Fldz(1:2,:,:),dcount2,mpi_psn,lproc,2,MPI_COMM_WORLD,stat,mpi_err)
+#ifdef cyl
+          call ExchangeYZEdgeField_Axis(Fldx,Fldy,Fldz) 
+#endif 		  
                     
      end subroutine ExchangeYZEdgeField
      subroutine ExchangeZXEdgeField(Fldx,Fldy,Fldz)

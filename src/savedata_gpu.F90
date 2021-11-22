@@ -1,9 +1,12 @@
 module savedata_gpu
 	use parameters
 	use vars
-	use var_gpu 	
+	use var_gpu 
+#ifdef cyl
+     use cyl_savedata_routines  
+#endif 			
 	use cudafor
-    integer, device :: fdataxi_gpu,fdatayi_gpu,fdatazi_gpu
+    integer, device :: fdataxi_gpu,fdatayi_gpu,fdatazi_gpu,procx
 	integer, device :: xb_min_gpu,yb_min_gpu,zb_min_gpu
 	integer, device :: fsave_ratio_gpu
 	integer, device :: tosave_prtl_size_gpu
@@ -21,118 +24,178 @@ contains
 		 yb_min_gpu=yb1
 		 zb_min_gpu=zb1 
 		 fsave_ratio_gpu=fsave_ratio
+		 procx=procxind(proc)
 	 end subroutine InitSaveDataGPU 
-	
 	 
+	 
+	 subroutine CalcPrtlEnergyGPU(elc_energy,ion_energy)
+		 real(psn) :: elc_energy, ion_energy
+		 integer :: size = 1024
+		 real , dimension(size)         :: elc_energy_wide , ion_energy_wide
+		 real , dimension(size), device :: elc_energy_wide_gpu, ion_energy_wide_gpu
+		 integer :: n, kc, indi,indf
+		 
+		  elc_energy_wide=0 ; ion_energy_wide =0;
+		  elc_energy_wide_gpu = elc_energy_wide; ion_energy_wide_gpu = ion_energy_wide;
+		  
+	      do kc=1,Nchunk_prtl_gpu
+	   		   indi=(kc-1)*chunk_size_prtl_gpu+1
+	   		   indf=(kc-1)*chunk_size_prtl_gpu+used_prtl_chunk(kc)
+			   call  CalcPrtlEnergyKernel<<<ceiling(real(used_prtl_chunk(kc))/NthreadsGPU), NthreadsGPU>>>(up_gpu,vp_gpu,wp_gpu,qp_gpu,flvp_gpu,elc_energy_wide_gpu,ion_energy_wide_gpu,size,indi,indf)
+		  end do 
+		 
+
+		  elc_energy_wide = elc_energy_wide_gpu; ion_energy_wide = ion_energy_wide_gpu;
+		  do n=1,size
+			  elc_energy = elc_energy + elc_energy_wide(n)
+			  ion_energy = ion_energy + ion_energy_wide(n)
+		  end do
+		  
+	 end subroutine CalcPrtlEnergyGPU
+	 
+	 attributes(global) subroutine CalcPrtlEnergyKernel(u,v,w,q,flv,elc_energy,ion_energy,size,indi,indf)
+		 integer, value :: size,indi,indf
+		 real, dimension(size) :: elc_energy, ion_energy
+		 real, dimension(:) :: q,u,v,w
+		 integer, dimension(:) :: flv
+		 real    :: eng
+		 integer :: n,m,stat
+		 
+	     n = blockDim%x * (blockIdx%x - 1) + threadIdx%x +(indi-1)
+	     if(n.gt.indf) return 
+	     
+		 m=mod(n-1,size)+1
+		 
+         eng = (sqrt(1.0+u(n)**2+v(n)**2+w(n)**2) - 1.0) * abs(q(n))     
+         if(flv(n).eq.1)  stat=atomicAdd( ion_energy(m) , eng ) 
+         if(flv(n).eq.2)  stat=atomicAdd( elc_energy(m) , eng ) 
+	 end subroutine CalcPrtlEnergyKernel
 	 
      subroutine CalcPrtlDensityGPU(ch)
 		 integer :: ch
 		 integer :: kc,indi,indf
-		 real :: cell_vol
-#ifdef twoD		 
-		 cell_vol=(fsave_ratio**2)
-#else
-         cell_vol=(fsave_ratio**3)
-#endif		 
-
-		  call ResetMatrixGPUKernelSaveData<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)			
+		 
+		  call ResetMatrixGPUKernelSaveData<<<grid,tBlock>>>(Jx_gpu,mx,my,mz)			
 	      do kc=1,Nchunk_prtl_gpu
 	   		   indi=(kc-1)*chunk_size_prtl_gpu+1
 	   		   indf=(kc-1)*chunk_size_prtl_gpu+used_prtl_chunk(kc)
-               call CalcPrtlDensityGPUKernel<<<ceiling(real(used_prtl_chunk(kc))/NthreadsGPU), NthreadsGPU>>>(ch,Jx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
-			   qp_gpu,xp_gpu,yp_gpu,zp_gpu,flvp_gpu,indi,indf,xb_min_gpu,yb_min_gpu,zb_min_gpu,fdataxi_gpu,fdatayi_gpu,fdatazi_gpu,fsave_ratio_gpu,mx_gpu,my_gpu,mz_gpu)
+               call CalcPrtlDensityGPUKernel<<<ceiling(real(used_prtl_chunk(kc))/NthreadsGPU), NthreadsGPU>>>(ch,Jx_gpu,mx,my,mz,&
+			   qp_gpu,xp_gpu,yp_gpu,zp_gpu,flvp_gpu,indi,indf,xb_min_gpu,yb_min_gpu,zb_min_gpu,fdataxi_gpu,fdatayi_gpu,fdatazi_gpu,fsave_ratio_gpu,procx)
           end do
-		  call NormaliseFldDensity1GPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,cell_vol)
-          Jx=Jx_gpu
+
+		  call NormaliseFldDensity1_GPU
+
      end subroutine CalcPrtlDensityGPU
 	 
      subroutine CalcTestPrtlDensityGPU(ch)
 		 integer :: ch
 		 integer :: kc,indi,indf
-		 real :: cell_vol
-#ifdef twoD		 
-		 cell_vol=(fsave_ratio**2)
-#else
-         cell_vol=(fsave_ratio**3)
-#endif		 
+	 
 
-		  call ResetMatrixGPUKernelSaveData<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)			
+		  call ResetMatrixGPUKernelSaveData<<<grid,tBlock>>>(Jx_gpu,mx,my,mz)			
 	      do kc=1,Nchunk_test_prtl_gpu
 	   		   indi=(kc-1)*chunk_size_test_prtl_gpu+1
 	   		   indf=(kc-1)*chunk_size_test_prtl_gpu+used_test_prtl_chunk(kc)
-               call CalcPrtlDensityGPUKernel<<<ceiling(real(used_test_prtl_chunk(kc))/NthreadsGPU), NthreadsGPU>>>(ch,Jx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
-			   qtp_gpu,xtp_gpu,ytp_gpu,ztp_gpu,flvtp_gpu,indi,indf,xb_min_gpu,yb_min_gpu,zb_min_gpu,fdataxi_gpu,fdatayi_gpu,fdatazi_gpu,fsave_ratio_gpu,mx_gpu,my_gpu,mz_gpu)
+               call CalcPrtlDensityGPUKernel<<<ceiling(real(used_test_prtl_chunk(kc))/NthreadsGPU), NthreadsGPU>>>(ch,Jx_gpu,mx,my,mz,&
+			   qtp_gpu,xtp_gpu,ytp_gpu,ztp_gpu,flvtp_gpu,indi,indf,xb_min_gpu,yb_min_gpu,zb_min_gpu,fdataxi_gpu,fdatayi_gpu,fdatazi_gpu,fsave_ratio_gpu,procx)
           end do
-		  call NormaliseFldDensity1GPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,cell_vol)
-          Jx=Jx_gpu
+
+		  call NormaliseFldDensity1_GPU
+
      end subroutine CalcTestPrtlDensityGPU
 	 
      subroutine CalcPrtlChargeFluxGPU(ch)
 		 integer :: ch
 		 integer :: kc,indi,indf
-		 real :: cell_vol
-#ifdef twoD		 
-		 cell_vol=(fsave_ratio**2)
-#else
-         cell_vol=(fsave_ratio**3)
-#endif		 
-
-		  call ResetMatrixGPUKernelSaveData<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)	
-		  call ResetMatrixGPUKernelSaveData<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jy_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)			
-		  call ResetMatrixGPUKernelSaveData<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)			
+	 
+		  call ResetMatrixGPUKernelSaveData<<<grid,tBlock>>>(Jx_gpu,mx,my,mz)	
+		  call ResetMatrixGPUKernelSaveData<<<grid,tBlock>>>(Jy_gpu,mx,my,mz)			
+		  call ResetMatrixGPUKernelSaveData<<<grid,tBlock>>>(Jz_gpu,mx,my,mz)			
 		  		
 	      do kc=1,Nchunk_prtl_gpu
 	   		   indi=(kc-1)*chunk_size_prtl_gpu+1
 	   		   indf=(kc-1)*chunk_size_prtl_gpu+used_prtl_chunk(kc)
-               call CalcPrtlChargeFluxGPUKernel<<<ceiling(real(used_prtl_chunk(kc))/NthreadsGPU), NthreadsGPU>>>(ch,Jx_gpu,Jy_gpu,Jz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
-			   qp_gpu,xp_gpu,yp_gpu,zp_gpu,up_gpu,vp_gpu,wp_gpu,flvp_gpu,indi,indf,xb_min_gpu,yb_min_gpu,zb_min_gpu,fdataxi_gpu,fdatayi_gpu,fdatazi_gpu,fsave_ratio_gpu,mx_gpu,my_gpu,mz_gpu)
+               call CalcPrtlChargeFluxGPUKernel<<<ceiling(real(used_prtl_chunk(kc))/NthreadsGPU), NthreadsGPU>>>(ch,Jx_gpu,Jy_gpu,Jz_gpu,mx,my,mz,&
+			   qp_gpu,xp_gpu,yp_gpu,zp_gpu,up_gpu,vp_gpu,wp_gpu,flvp_gpu,indi,indf,xb_min_gpu,yb_min_gpu,zb_min_gpu,fdataxi_gpu,fdatayi_gpu,fdatazi_gpu,fsave_ratio_gpu,procx)
           end do
-		  call NormaliseFldDensity1GPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,cell_vol)
-		  call NormaliseFldDensity1GPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jy_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,cell_vol)
-		  call NormaliseFldDensity1GPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,cell_vol)	  
-          Jx=Jx_gpu
-		  Jy=Jy_gpu
-		  Jz=Jz_gpu
+
+		  call NormaliseFldDensity3_GPU		  
      end subroutine CalcPrtlChargeFluxGPU
 	 
      subroutine CalcTestPrtlChargeFluxGPU(ch)
 		 integer :: ch
-		 integer :: kc,indi,indf
-		 real :: cell_vol
-#ifdef twoD		 
-		 cell_vol=(fsave_ratio**2)
-#else
-         cell_vol=(fsave_ratio**3)
-#endif		 
+		 integer :: kc,indi,indf	 
 
-		  call ResetMatrixGPUKernelSaveData<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)	
-		  call ResetMatrixGPUKernelSaveData<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jy_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)			
-		  call ResetMatrixGPUKernelSaveData<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)			
+		  call ResetMatrixGPUKernelSaveData<<<grid,tBlock>>>(Jx_gpu,mx,my,mz)	
+		  call ResetMatrixGPUKernelSaveData<<<grid,tBlock>>>(Jy_gpu,mx,my,mz)			
+		  call ResetMatrixGPUKernelSaveData<<<grid,tBlock>>>(Jz_gpu,mx,my,mz)			
 		  		
 	      do kc=1,Nchunk_test_prtl_gpu
 	   		   indi=(kc-1)*chunk_size_test_prtl_gpu+1
 	   		   indf=(kc-1)*chunk_size_test_prtl_gpu+used_test_prtl_chunk(kc)
-               call CalcPrtlChargeFluxGPUKernel<<<ceiling(real(used_test_prtl_chunk(kc))/NthreadsGPU), NthreadsGPU>>>(ch,Jx_gpu,Jy_gpu,Jz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
-			   qtp_gpu,xtp_gpu,ytp_gpu,ztp_gpu,utp_gpu,vtp_gpu,wtp_gpu,flvtp_gpu,indi,indf,xb_min_gpu,yb_min_gpu,zb_min_gpu,fdataxi_gpu,fdatayi_gpu,fdatazi_gpu,fsave_ratio_gpu,mx_gpu,my_gpu,mz_gpu)
+               call CalcPrtlChargeFluxGPUKernel<<<ceiling(real(used_test_prtl_chunk(kc))/NthreadsGPU), NthreadsGPU>>>(ch,Jx_gpu,Jy_gpu,Jz_gpu,mx,my,mz,&
+			   qtp_gpu,xtp_gpu,ytp_gpu,ztp_gpu,utp_gpu,vtp_gpu,wtp_gpu,flvtp_gpu,indi,indf,xb_min_gpu,yb_min_gpu,zb_min_gpu,fdataxi_gpu,fdatayi_gpu,fdatazi_gpu,fsave_ratio_gpu,procx)
           end do
-		  call NormaliseFldDensity1GPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,cell_vol)
-		  call NormaliseFldDensity1GPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jy_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,cell_vol)
-		  call NormaliseFldDensity1GPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(Jz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,cell_vol)	  
+
+		  call NormaliseFldDensity3_GPU
+     end subroutine CalcTestPrtlChargeFluxGPU
+	 
+	 !-------------------------------------------------------------------------------------------------------------------------
+	 !      Normalisation
+	 !-------------------------------------------------------------------------------------------------------------------------
+	 subroutine NormaliseFldDensity1_GPU
+		 real :: cell_vol
+
+#ifdef twoD		 
+		 cell_vol=(fsave_ratio**2)
+#else
+         cell_vol=(fsave_ratio**3)
+#endif
+
+#ifndef cyl		  
+		  call NormaliseFldDensity1GPUKernel<<<grid,tBlock>>>(Jx_gpu,mx,my,mz,cell_vol)
+		  Jx=Jx_gpu
+#endif
+
+#ifdef cyl		  
+          Jx=Jx_gpu
+		  call NormaliseFldDensity1
+#endif		 
+		 
+	 end subroutine NormaliseFldDensity1_GPU
+	 
+	 
+	 subroutine NormaliseFldDensity3_GPU
+		 real :: cell_vol
+
+#ifdef twoD		 
+		 cell_vol=(fsave_ratio**2)
+#else
+         cell_vol=(fsave_ratio**3)
+#endif
+
+#ifndef cyl		 
+		  call NormaliseFldDensity1GPUKernel<<<grid,tBlock>>>(Jx_gpu,mx,my,mz,cell_vol)
+		  call NormaliseFldDensity1GPUKernel<<<grid,tBlock>>>(Jy_gpu,mx,my,mz,cell_vol)
+		  call NormaliseFldDensity1GPUKernel<<<grid,tBlock>>>(Jz_gpu,mx,my,mz,cell_vol)
           Jx=Jx_gpu
 		  Jy=Jy_gpu
 		  Jz=Jz_gpu
-     end subroutine CalcTestPrtlChargeFluxGPU
+#endif		  	  
+
+#ifdef cyl
+          Jx=Jx_gpu
+		  Jy=Jy_gpu
+		  Jz=Jz_gpu
+		  call NormaliseFldDensity3
+#endif		 
+
+	 end subroutine NormaliseFldDensity3_GPU
 	 
-	 
-	 
-	 attributes(global) subroutine CalcPrtlDensityGPUKernel(ch,Fld,x1,x2,y1,y2,z1,z2,q,x,y,z,flv,indi,indf,xb,yb,zb,fdataxi,fdatayi,fdatazi,fsave_ratio,mx,my,mz)
-	       integer, value :: ch
-		   integer :: x1,x2,y1,y2,z1,z2 
-#ifndef twoD 		
-           real  , dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fld
-#else 
-           real  , dimension(x1-2:x2+2,y1-2:y2+2,1) :: Fld
-#endif  		           
+	 attributes(global) subroutine CalcPrtlDensityGPUKernel(ch,Fld,mx,my,mz,q,x,y,z,flv,indi,indf,xb,yb,zb,fdataxi,fdatayi,fdatazi,fsave_ratio,procx)
+	       integer, value :: ch,mx,my,mz
+		   integer :: procx	
+           real  , dimension(mx,my,mz) :: Fld 		           
  	       real, dimension(:) :: q,x,y,z
  	       integer, dimension(:)  :: flv
 		   integer, value :: indi,indf
@@ -140,7 +203,6 @@ contains
 		   integer  :: xb,yb,zb
  		   integer  :: fdataxi,fdatayi,fdatazi 
 		   integer  :: fsave_ratio
- 		   integer  :: mx,my,mz
 		   
    		   integer :: n 
    		   integer :: stat
@@ -157,7 +219,7 @@ contains
 		   if(n.gt.indf) return 
 		   
                if(flv(n).eq.ch) then
-                    call  DownsampleGridIndexGPU(x(n),y(n),z(n),i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp,fsave_ratio,xb,yb,zb,fdataxi,fdatayi,fdatazi,mx,my,mz)
+                    call  DownsampleGridIndexGPU(x(n),y(n),z(n),i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp,fsave_ratio,xb,yb,zb,fdataxi,fdatayi,fdatazi,mx,my,mz,procx)
                     Den(1)= Wx *Wy *Wz*q(n)
                     Den(2)= Wxp*Wy *Wz*q(n)
                     Den(3)= Wx *Wyp*Wz*q(n)
@@ -185,21 +247,16 @@ contains
 	 end subroutine CalcPrtlDensityGPUKernel 
 	 
 	 
-	 attributes(global) subroutine CalcPrtlChargeFluxGPUKernel(ch,Fldx,Fldy,Fldz,x1,x2,y1,y2,z1,z2,q,x,y,z,u,v,w,flv,indi,indf,xb,yb,zb,fdataxi,fdatayi,fdatazi,fsave_ratio,mx,my,mz)
-	       integer, value :: ch
-		   integer :: x1,x2,y1,y2,z1,z2 
-#ifndef twoD 		
-           real  , dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fldx,Fldy,Fldz
-#else
-           real  , dimension(x1-2:x2+2,y1-2:y2+2,1) :: Fldx,Fldy,Fldz
-#endif  	
+	 attributes(global) subroutine CalcPrtlChargeFluxGPUKernel(ch,Fldx,Fldy,Fldz,mx,my,mz,q,x,y,z,u,v,w,flv,indi,indf,xb,yb,zb,fdataxi,fdatayi,fdatazi,fsave_ratio,procx)
+	       integer, value :: ch, mx,my,mz
+		   integer :: x1,x2,y1,y2,z1,z2,procx
+           real  , dimension(mx,my,mz) :: Fldx,Fldy,Fldz 	
 		   real, dimension(:) :: q,x,y,z,u,v,w
 		   integer, dimension(:)  :: flv
 		   integer, value :: indi,indf	           
 		   integer  :: xb,yb,zb
  		   integer  :: fdataxi,fdatayi,fdatazi 
 		   integer  :: fsave_ratio
- 		   integer  :: mx,my,mz
 		   
    		   integer :: n 
    		   integer :: stat
@@ -216,7 +273,7 @@ contains
 		   if(n.gt.indf) return 
 		   
            if(flv(n).eq.ch) then
-                call  DownsampleGridIndexGPU(x(n),y(n),z(n),i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp,fsave_ratio,xb,yb,zb,fdataxi,fdatayi,fdatazi,mx,my,mz)
+                call  DownsampleGridIndexGPU(x(n),y(n),z(n),i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp,fsave_ratio,xb,yb,zb,fdataxi,fdatayi,fdatazi,mx,my,mz,procx)
            
                     invg=1/sqrt(1+u(n)**2+v(n)**2+w(n)**2)
                     vx=u(n)*invg
@@ -283,8 +340,9 @@ contains
 	 end subroutine CalcPrtlChargeFluxGPUKernel
 	 
 	 
-     attributes(device) subroutine DownsampleGridIndexGPU(x,y,z,i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp,fsave_ratio,xb,yb,zb,fdataxi,fdatayi,fdatazi,mx,my,mz)
-          real :: x,y,z
+     attributes(device) subroutine DownsampleGridIndexGPU(x,y,z,i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp,fsave_ratio,xb,yb,zb,fdataxi,fdatayi,fdatazi,mx,my,mz,procx)
+	      integer :: procx 
+		  real :: x,y,z
           integer :: i,j,k,ip,jp,kp
           real :: Wx,Wy,Wz,Wxp,Wyp,Wzp
           real :: fp
@@ -324,6 +382,9 @@ contains
                Wz=1
                k=1
 #endif
+#ifdef cyl
+               call AxisPrtlWtGPU(x,Wx,Wxp,procx,fsave_ratio)	 
+#endif
      end subroutine DownsampleGridIndexGPU
 	 
      integer attributes(device) function floor2realGPU(n1,n2)
@@ -336,44 +397,37 @@ contains
           end if
      end function floor2realGPU
 	 
-  	attributes(global) subroutine NormaliseFldDensity1GPUKernel(Fld,x1,x2,y1,y2,z1,z2,norm)
-  		integer :: x1,x2,y1,y2,z1,z2
- #ifndef twoD 		
-  		real(psn), dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fld
- #else 
-         real(psn), dimension(x1-2:x2+2,y1-2:y2+2,1) :: Fld
- #endif  		
+  	attributes(global) subroutine NormaliseFldDensity1GPUKernel(Fld,mx,my,mz,norm)
+  		integer, value :: mx,my,mz		
+  		real(psn), dimension(mx,my,mz) :: Fld
         real, value :: norm 
   		integer :: i,j,k
 
 		
-  		i = (blockIdx%x-1)*blockDim%x + threadIdx%x +x1-3
-  		j = (blockIdx%y-1)*blockDim%y + threadIdx%y +y1-3
+  		i = (blockIdx%x-1)*blockDim%x + threadIdx%x 
+  		j = (blockIdx%y-1)*blockDim%y + threadIdx%y 
  #ifndef twoD 		
-  		k = (blockIdx%z-1)*blockDim%z + threadIdx%z +z1-3
+  		k = (blockIdx%z-1)*blockDim%z + threadIdx%z 
  #else
         k=1
  #endif  
-          if((i.le.x2+2).and.(j.le.y2+2).and.(k.le.z2+2)) Fld(i,j,k)=Fld(i,j,k)/norm
+          if((i.le.mx).and.(j.le.my).and.(k.le.mz)) Fld(i,j,k)=Fld(i,j,k)/norm
   	end subroutine NormaliseFldDensity1GPUKernel
 	
- 	attributes(global) subroutine ResetMatrixGPUKernelSaveData(Fld,x1,x2,y1,y2,z1,z2)
- 		integer :: x1,x2,y1,y2,z1,z2
-#ifndef twoD 		
- 		real(psn), dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fld
-#else 
-        real(psn), dimension(x1-2:x2+2,y1-2:y2+2,1) :: Fld
-#endif  		
+ 	attributes(global) subroutine ResetMatrixGPUKernelSaveData(Fld,mx,my,mz)
+ 		integer, value :: mx,my,mz
+ 		real(psn), dimension(mx,my,mz) :: Fld
+  		
  		integer :: i,j,k
 		
- 		i = (blockIdx%x-1)*blockDim%x + threadIdx%x +x1-3
- 		j = (blockIdx%y-1)*blockDim%y + threadIdx%y +y1-3
+ 		i = (blockIdx%x-1)*blockDim%x + threadIdx%x 
+ 		j = (blockIdx%y-1)*blockDim%y + threadIdx%y 
 #ifndef twoD 		
- 		k = (blockIdx%z-1)*blockDim%z + threadIdx%z +z1-3
+ 		k = (blockIdx%z-1)*blockDim%z + threadIdx%z 
 #else
         k=1
 #endif  
-         if((i.le.x2+2).and.(j.le.y2+2).and.(k.le.z2+2)) Fld(i,j,k)=0.0
+         if((i.le.mx).and.(j.le.my).and.(k.le.mz)) Fld(i,j,k)=0.0
  	end subroutine ResetMatrixGPUKernelSaveData
 	
 !-----------------------------------------------------------------------	
@@ -447,12 +501,12 @@ end subroutine CollectPrtlGPU
 	 
 	 subroutine CalcPrtlLocalFieldGPU
 	          !Note that on gpu the data is stored in recv buffer 
-              call CollectPrtlLocalFldGPUKernel<<<ceiling(real(tosave_prtl_size_host)/NthreadsGPU), NthreadsGPU>>>(TexEx_gpu,TexEy_gpu,TexEz_gpu,TexBx_gpu,TexBy_gpu,TexBz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
+              call CollectPrtlLocalFldGPUKernel<<<ceiling(real(tosave_prtl_size_host)/NthreadsGPU), NthreadsGPU>>>(TexEx_gpu,TexEy_gpu,TexEz_gpu,TexBx_gpu,TexBy_gpu,TexBz_gpu,mx,my,mz,&
 			  xp_send_gpu,yp_send_gpu,zp_send_gpu,xp_recv_gpu,yp_recv_gpu,zp_recv_gpu,up_recv_gpu,vp_recv_gpu,wp_recv_gpu,tosave_prtl_size_gpu)
 	 end subroutine CalcPrtlLocalFieldGPU
 	 
 	 subroutine CalcPrtlLocalCurrGPU
-              call CollectPrtlLocalCurrGPUKernel<<<ceiling(real(tosave_prtl_size_host)/NthreadsGPU), NthreadsGPU>>>(Jx_gpu,Jy_gpu,Jz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
+              call CollectPrtlLocalCurrGPUKernel<<<ceiling(real(tosave_prtl_size_host)/NthreadsGPU), NthreadsGPU>>>(Jx_gpu,Jy_gpu,Jz_gpu,mx,my,mz,&
 			  xp_send_gpu,yp_send_gpu,zp_send_gpu,xp_recv_gpu,yp_recv_gpu,zp_recv_gpu,tosave_prtl_size_gpu)
 	 end subroutine CalcPrtlLocalCurrGPU
 	 
@@ -487,13 +541,9 @@ end subroutine CollectPrtlGPU
 		 end if 
 	 end subroutine CollectPrtlGPUKernel
 	 
-	 attributes(global) subroutine CollectPrtlLocalFldGPUKernel(Ex,Ey,Ez,Bx,By,Bz,x1,x2,y1,y2,z1,z2,x,y,z,pEx,pEy,pEz,pBx,pBy,pBz,Nprtl)
-	    integer :: x1,x2,y1,y2,z1,z2
-#ifndef twoD  		
-	    real, dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2)  :: Ex,Ey,Ez,Bx,By,Bz
-#else 		
-	    real, dimension(x1-2:x2+2,y1-2:y2+2,1:1)  :: Ex,Ey,Ez,Bx,By,Bz
-#endif
+	 attributes(global) subroutine CollectPrtlLocalFldGPUKernel(Ex,Ey,Ez,Bx,By,Bz,mx,my,mz,x,y,z,pEx,pEy,pEz,pBx,pBy,pBz,Nprtl)
+	    integer, value :: mx,my,mz
+	    real, dimension(mx,my,mz)  :: Ex,Ey,Ez,Bx,By,Bz
         real, dimension(:) ::x,y,z
         real, dimension(:) ::pEx,pEy,pEz,pBx,pBy,pBz
         
@@ -551,13 +601,9 @@ end subroutine CollectPrtlGPU
          end if 
      end subroutine CollectPrtlLocalFldGPUKernel
 	 
-	 attributes(global) subroutine CollectPrtlLocalCurrGPUKernel(Jx,Jy,Jz,x1,x2,y1,y2,z1,z2,x,y,z,pJx,pJy,pJz,Nprtl)
-	    integer :: x1,x2,y1,y2,z1,z2
-#ifndef twoD  		
-	    real, dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2)  :: Jx,Jy,Jz
-#else 		
-	    real, dimension(x1-2:x2+2,y1-2:y2+2,1:1)  :: Jx,Jy,Jz
-#endif
+	 attributes(global) subroutine CollectPrtlLocalCurrGPUKernel(Jx,Jy,Jz,mx,my,mz,x,y,z,pJx,pJy,pJz,Nprtl)
+	    integer, value :: mx,my,mz
+	    real, dimension(mx,my,mz)  :: Jx,Jy,Jz
         real, dimension(:) ::x,y,z
 		real, dimension(:) ::pJx,pJy,pJz
         
@@ -652,255 +698,6 @@ end subroutine CollectPrtlGPU
 	
 	end subroutine CollectPrtlLocalCurrGPUKernel
 		
-	 
-	 
-	 
-!-------------------------------------
-!
-! The following subroutines are used to donwsample the Fld data on GPU before 
-!-------------------------------------	 
-	 	 
-	 
-	 
-!
-!         subroutine CollectFldGPU(Fin,fvid,x1,x2,y1,y2,z1,z2,sx,sy,sz,fs)
-!              integer, intent(in) :: fvid
-!    		  integer :: x1,x2,y1,y2,z1,z2
-!    		  integer :: sx,sy,sz
-!    		  integer :: fs
-!              real(psn),dimension(mx,my,mz), intent(in):: Fin !field to be saved
-!    	  	  type(dim3)         :: tBlock_gpu,tGrid_gpu
-!
-!    #ifdef twoD
-!    	      tBlock_gpu = dim3(16 ,16 ,1)
-!    	      tGrid_gpu = dim3(ceiling(real(x2-x1+1)/tBlock_gpu%x), ceiling(real(y2-y1+1)/tBlock_gpu%y), 1)
-!    #else
-!              tBlock_gpu = dim3(8 ,8 ,4)
-!              tGrid_gpu = dim3(ceiling(real(x2-x1+1)/tBlock_gpu%x), ceiling(real(y2-y1+1)/tBlock_gpu%y), ceiling(real(z2-z1+1)/tBlock_gpu%z))
-!    #endif
-!
-!
-!              if((sx.eq.0).or.(sy.eq.0).or.(sz.eq.0)) return
-!
-!
-!                     select case (fvid)
-!                     case(1)
-!    				   call CollectFldExGPU<<<tGrid_gpu_global,tBlock_gpu_global>>>(fdata_gpu,Ex_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
-!    				   x1,y1,z1,x2,y2,z2,fs)
-!                     case(3)
-!    			       call CollectFldEyGPU<<<tGrid_gpu_global,tBlock_gpu_global>>>(fdata_gpu,Ey_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
-!    			       x1,y1,z1,x2,y2,z2,fs)
-!    				 case(5)
-!    			       call CollectFldEzGPU<<<tGrid_gpu_global,tBlock_gpu_global>>>(fdata_gpu,Ez_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
-!    			       x1,y1,z1,x2,y2,z2,fs)
-!                     case(7)
-!    			       call CollectFldBxGPU<<<tGrid_gpu_global,tBlock_gpu_global>>>(fdata_gpu,Bx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
-!    			       x1,y1,z1,x2,y2,z2,fs)
-!                     case(9)
-!    		           call CollectFldByGPU<<<tGrid_gpu_global,tBlock_gpu_global>>>(fdata_gpu,By_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
-!    		           x1,y1,z1,x2,y2,z2,fs)
-!                     case(11)
-!    	               call CollectFldBzGPU<<<tGrid_gpu_global,tBlock_gpu_global>>>(fdata_gpu,Bz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
-!    	               x1,y1,z1,x2,y2,z2,fs)
-!                     case(13)
-!                       call CollectFldDenGPU<<<tGrid_gpu_global,tBlock_gpu_global>>>(fdata_gpu,Bz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,&
-!                       x1,y1,z1,x2,y2,z2,fs)
-!                end select
-!
-!    			fdata=fdata_gpu
-!
-!         end subroutine CollectFldGPU
-!
-!    	 attributes(global) subroutine CollectFldExGPU(Fld,Fld_gpu,x1,x2,y1,y2,z1,z2,i1,j1,k1,i2,j2,k2,fs)
-!    	       real , dimension(:,:,:) :: Fld
-!    		   integer :: x1,x2,y1,y2,z1,z2
-!    #ifndef twoD
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fld_gpu
-!    #else
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,1) :: Fld_gpu
-!    #endif
-!               integer, value :: i1,j1,k1,i2,j2,k2,fs
-!    		   integer :: i,j,k
-!    		   integer :: l,m,n
-!
-!       		   i = (blockIdx%x-1)*blockDim%x + threadIdx%x
-!       		   j = (blockIdx%y-1)*blockDim%y + threadIdx%y
-!    #ifndef twoD
-!       		   k = (blockIdx%z-1)*blockDim%z + threadIdx%z
-!    #else
-!               k=1
-!    #endif
-!
-!               l=(i-1)*fs +i1
-!               m=(j-1)*fs +j1
-!               n=(k-1)*fs +k1
-!    		   if((l.le.i2).and.(m.le.j2).and.(n.le.k2))    Fld(i,j,k) = 0.5*(Fld_gpu(l-1,m,n)+Fld_gpu(l,m,n))
-!         end subroutine CollectFldExGPU
-!
-!    	 attributes(global) subroutine CollectFldEyGPU(Fld,Fld_gpu,x1,x2,y1,y2,z1,z2,i1,j1,k1,i2,j2,k2,fs)
-!    	       real , dimension(:,:,:) :: Fld
-!    		   integer :: x1,x2,y1,y2,z1,z2
-!    #ifndef twoD
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fld_gpu
-!    #else
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,1) :: Fld_gpu
-!    #endif
-!               integer, value :: i1,j1,k1,i2,j2,k2,fs
-!    		   integer :: i,j,k
-!    		   integer :: l,m,n
-!
-!       		   i = (blockIdx%x-1)*blockDim%x + threadIdx%x
-!       		   j = (blockIdx%y-1)*blockDim%y + threadIdx%y
-!    #ifndef twoD
-!       		   k = (blockIdx%z-1)*blockDim%z + threadIdx%z
-!    #else
-!               k=1
-!    #endif
-!
-!               l=(i-1)*fs +i1
-!               m=(j-1)*fs +j1
-!               n=(k-1)*fs +k1
-!    		   if((l.le.i2).and.(m.le.j2).and.(n.le.k2))    Fld(i,j,k) = 0.5*(Fld_gpu(l,m-1,n)+Fld_gpu(l,m,n))
-!         end subroutine CollectFldEyGPU
-!    	 attributes(global) subroutine CollectFldEzGPU(Fld,Fld_gpu,x1,x2,y1,y2,z1,z2,i1,j1,k1,i2,j2,k2,fs)
-!    	       real , dimension(:,:,:) :: Fld
-!    		   integer :: x1,x2,y1,y2,z1,z2
-!    #ifndef twoD
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fld_gpu
-!    #else
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,1) :: Fld_gpu
-!    #endif
-!               integer, value :: i1,j1,k1,i2,j2,k2,fs
-!    		   integer :: i,j,k
-!    		   integer :: l,m,n
-!
-!       		   i = (blockIdx%x-1)*blockDim%x + threadIdx%x
-!       		   j = (blockIdx%y-1)*blockDim%y + threadIdx%y
-!    #ifndef twoD
-!       		   k = (blockIdx%z-1)*blockDim%z + threadIdx%z
-!    #else
-!               k=1
-!    #endif
-!
-!               l=(i-1)*fs +i1
-!               m=(j-1)*fs +j1
-!               n=(k-1)*fs +k1
-!    #ifdef twoD
-!               if((l.le.i2).and.(m.le.j2))    Fld(i,j,k) = Fld_gpu(l,m,n)
-!    #else
-!    		   if((l.le.i2).and.(m.le.j2).and.(n.le.k2))    Fld(i,j,k) = 0.5*(Fld_gpu(l,m,n-1)+Fld_gpu(l,m,n))
-!    #endif
-!         end subroutine CollectFldEzGPU
-!    	 attributes(global) subroutine CollectFldBxGPU(Fld,Fld_gpu,x1,x2,y1,y2,z1,z2,i1,j1,k1,i2,j2,k2,fs)
-!    	       real , dimension(:,:,:) :: Fld
-!    		   integer :: x1,x2,y1,y2,z1,z2
-!    #ifndef twoD
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fld_gpu
-!    #else
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,1) :: Fld_gpu
-!    #endif
-!               integer, value :: i1,j1,k1,i2,j2,k2,fs
-!    		   integer :: i,j,k
-!    		   integer :: l,m,n
-!
-!       		   i = (blockIdx%x-1)*blockDim%x + threadIdx%x
-!       		   j = (blockIdx%y-1)*blockDim%y + threadIdx%y
-!    #ifndef twoD
-!       		   k = (blockIdx%z-1)*blockDim%z + threadIdx%z
-!    #else
-!               k=1
-!    #endif
-!
-!               l=(i-1)*fs +i1
-!               m=(j-1)*fs +j1
-!               n=(k-1)*fs +k1
-!    #ifdef twoD
-!    		   if((l.le.i2).and.(m.le.j2).and.(n.le.k2))  Fld(i,j,k) = 0.25*(Fld_gpu(l,m,n)+Fld_gpu(l,m-1,n)+Fld_gpu(l,m,n-1)+Fld_gpu(l,m-1,n-1))
-!    #else
-!               if((l.le.i2).and.(m.le.j2))  Fld(i,j,k) = 0.5*(Fld_gpu(l,m,n)+Fld_gpu(l,m-1,n))
-!    #endif
-!         end subroutine CollectFldBxGPU
-!
-!    	 attributes(global) subroutine CollectFldByGPU(Fld,Fld_gpu,x1,x2,y1,y2,z1,z2,i1,j1,k1,i2,j2,k2,fs)
-!    	       real , dimension(:,:,:) :: Fld
-!    		   integer :: x1,x2,y1,y2,z1,z2
-!    #ifndef twoD
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fld_gpu
-!    #else
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,1) :: Fld_gpu
-!    #endif
-!               integer, value :: i1,j1,k1,i2,j2,k2,fs
-!    		   integer :: i,j,k
-!    		   integer :: l,m,n
-!
-!       		   i = (blockIdx%x-1)*blockDim%x + threadIdx%x
-!       		   j = (blockIdx%y-1)*blockDim%y + threadIdx%y
-!    #ifndef twoD
-!       		   k = (blockIdx%z-1)*blockDim%z + threadIdx%z
-!    #else
-!               k=1
-!    #endif
-!
-!               l=(i-1)*fs +i1
-!               m=(j-1)*fs +j1
-!               n=(k-1)*fs +k1
-!    #ifdef twoD
-!    		   if((l.le.i2).and.(m.le.j2).and.(n.le.k2))  Fld(i,j,k) = 0.25*(Fld_gpu(l,m,n)+Fld_gpu(l-1,m,n)+Fld_gpu(l,m,n-1)+Fld_gpu(l-1,m,n-1))
-!    #else
-!               if((l.le.i2).and.(m.le.j2))  Fld(i,j,k) = 0.5*(Fld_gpu(l,m,n)+Fld_gpu(l-1,m,n))
-!    #endif
-!         end subroutine CollectFldByGPU
-!
-!    	 attributes(global) subroutine CollectFldBzGPU(Fld,Fld_gpu,x1,x2,y1,y2,z1,z2,i1,j1,k1,i2,j2,k2,fs)
-!    	       real , dimension(:,:,:) :: Fld
-!    		   integer :: x1,x2,y1,y2,z1,z2
-!    #ifndef twoD
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fld_gpu
-!    #else
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,1) :: Fld_gpu
-!    #endif
-!               integer, value :: i1,j1,k1,i2,j2,k2,fs
-!    		   integer :: i,j,k
-!    		   integer :: l,m,n
-!
-!       		   i = (blockIdx%x-1)*blockDim%x + threadIdx%x
-!       		   j = (blockIdx%y-1)*blockDim%y + threadIdx%y
-!    #ifndef twoD
-!       		   k = (blockIdx%z-1)*blockDim%z + threadIdx%z
-!    #else
-!               k=1
-!    #endif
-!
-!               l=(i-1)*fs +i1
-!               m=(j-1)*fs +j1
-!               n=(k-1)*fs +k1
-!    		   if((l.le.i2).and.(m.le.j2).and.(n.le.k2))  Fld(i,j,k) = 0.25*(Fld_gpu(l,m,n)+Fld_gpu(l-1,m,n)+Fld_gpu(l,m-1,n)+Fld_gpu(l-1,m-1,n))
-!         end subroutine CollectFldBzGPU
-!
-!    	 attributes(global) subroutine CollectFldDenGPU(Fld,Fld_gpu,x1,x2,y1,y2,z1,z2,i1,j1,k1,i2,j2,k2,fs)
-!    	       real , dimension(:,:,:) :: Fld
-!    		   integer :: x1,x2,y1,y2,z1,z2
-!    #ifndef twoD
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fld_gpu
-!    #else
-!    		   real  , dimension(x1-2:x2+2,y1-2:y2+2,1) :: Fld_gpu
-!    #endif
-!               integer, value :: i1,j1,k1,i2,j2,k2,fs
-!    		   integer :: i,j,k
-!    		   integer :: l,m,n
-!
-!       		   i = (blockIdx%x-1)*blockDim%x + threadIdx%x
-!       		   j = (blockIdx%y-1)*blockDim%y + threadIdx%y
-!    #ifndef twoD
-!       		   k = (blockIdx%z-1)*blockDim%z + threadIdx%z
-!    #else
-!               k=1
-!    #endif
-!
-!               l=(i-1)*fs +i1
-!               m=(j-1)*fs +j1
-!               n=(k-1)*fs +k1
-!    		   if((l.le.i2).and.(m.le.j2).and.(n.le.k2))  Fld(i,j,k) = Fld_gpu(l,m,n)
-!         end subroutine CollectFldDenGPU
+	
 	
 end module savedata_gpu

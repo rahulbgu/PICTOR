@@ -4,7 +4,7 @@ module HDF5write
 	use HDF5
 contains 
 !---------------------------------------------------------------------------------------------------------------------------------
-!    Some high level subroutines to write data in HDF files 
+!    Some high level subroutines to write data in HDF5 files 
 !----------------------------------------------------------------------------------------------------------------------------------
 
 subroutine HDF5writeINT(fid,dspace_id,varname,var)
@@ -68,10 +68,10 @@ subroutine WriteArrReal1(FileName,FileID,sizex,var,varname,extn)
           end if
      end if
      rank=1
-    call h5screate_simple_f(rank,data_dim,dspace_id,err)
-    call h5dcreate_f(fid_this,varname,H5T_NATIVE_REAL,dspace_id,dset_id,err)
-    call h5dwrite_f(dset_id,H5T_NATIVE_REAL,real(var),data_dim,err)
-    call h5dclose_f(dset_id,err)     
+     call h5screate_simple_f(rank,data_dim,dspace_id,err)
+     call h5dcreate_f(fid_this,varname,H5T_NATIVE_REAL,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_REAL,real(var),data_dim,err)
+     call h5dclose_f(dset_id,err)     
      call h5sclose_f(dspace_id,err)     
      
 end subroutine WriteArrReal1

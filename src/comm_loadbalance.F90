@@ -172,10 +172,24 @@ end subroutine Swap_SendRecvNeighbourProc
 !Load balance incase of Homogeneous case
 !-----------------------------------------------------------------------------------------------------
 subroutine BcastExecTimeAllHomogeneous(arr)
-     real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1), intent(inout) :: arr
-     integer :: mpi_err
-     call MPI_ALLREDUCE(MPI_IN_PLACE,arr,nproc,MPI_REAL,mpi_sum,MPI_COMM_WORLD,mpi_err) !synch the matrix on all proc
+#ifdef twoD	
+     real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:0) :: arr
+#else	 
+	 real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1,0:nSubDomainsZ-1) :: arr
+#endif	 
+     integer :: mpi_err, size
+	 size=nSubDomainsX*nSubDomainsY*nSubDomainsZ
+#ifdef twoD 
+     size=nSubDomainsX*nSubDomainsY
+#endif	 
+     call MPI_ALLREDUCE(MPI_IN_PLACE,arr,size,MPI_REAL,mpi_sum,MPI_COMM_WORLD,mpi_err) !synch the matrix on all proc
 end subroutine BcastExecTimeAllHomogeneous
+
+subroutine ReduceNumPrtlX(arr, i1, i2, size)
+	integer  :: i1, i2, size, mpi_err
+	real(dbpsn), dimension(i1:i2) :: arr
+	call MPI_ALLREDUCE(MPI_IN_PLACE,arr(i1:i2),size,MPI_REAL8,mpi_sum,MPI_COMM_WORLD,mpi_err)
+end subroutine ReduceNumPrtlX
 
 
      

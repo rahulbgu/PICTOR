@@ -13,12 +13,13 @@ contains
 #ifdef twoD	 
      subroutine LoadPrtlOutliers
 		 implicit none 
-          integer:: i,ind
+         integer:: i,ind,off
 		  
+		  do off=0,used_prtl_arr_size-1,outp_arr_block_size
 #ifdef OPEN_MP
 !$OMP PARALLEL DO PRIVATE(i,ind)
 #endif			  
-          do i=1,used_prtl_arr_size			  
+          do i=1+off,min(off+outp_arr_block_size,used_prtl_arr_size)	  
                if(qp(i).eq.0) cycle
                if(xp(i).lt.xmin) then                    
                     if((yp(i).le.(ymax+xmin-xp(i))).and.(yp(i).ge.(ymin-xmin+xp(i)))) then  
@@ -75,16 +76,20 @@ tcross=tcross+1
                     end if
                end if			   
          end do
+		 call UpdateTransferOutSize
+	     end do 
 		 
      end subroutine LoadPrtlOutliers
 	 
      subroutine LoadTestPrtlOutliers
 		 implicit none 
-          integer:: i,ind
+          integer:: i,ind,off
+		  
+		  do off=0,used_test_prtl_arr_size-1,outp_arr_block_size
 #ifdef OPEN_MP
 !$OMP PARALLEL DO PRIVATE(i,ind)
 #endif		  
-          do i=1,used_test_prtl_arr_size
+          do i=1+off,min(off+outp_arr_block_size,used_test_prtl_arr_size)	
                if(qtp(i).eq.0) cycle
                if(xtp(i).lt.xmin) then                    
                     if((ytp(i).le.(ymax+xmin-xtp(i))).and.(ytp(i).ge.(ymin-xmin+xtp(i)))) then 
@@ -141,6 +146,8 @@ tcross=tcross+1
                     end if
                end if
          end do
+		 call UpdateTransferOutSize
+	     end do
      end subroutine LoadTestPrtlOutliers
 	 
 	 
@@ -149,11 +156,13 @@ tcross=tcross+1
 #else	 
      subroutine LoadPrtlOutliers
 		 implicit none
-          integer:: i,ind
+         integer:: i,ind,off
+		  
+		 do off=0,used_prtl_arr_size-1,outp_arr_block_size 
 #ifdef OPEN_MP
 !$OMP PARALLEL DO PRIVATE(i,ind)
 #endif
-          do i=1,used_prtl_arr_size
+         do i=1+off,min(off+outp_arr_block_size,used_prtl_arr_size)
                if(qp(i).eq.0) cycle
                if(xp(i).lt.xmin) then                    
                     if((yp(i).le.(ymax+xmin-xp(i))).and.(yp(i).ge.(ymin-xmin+xp(i)))) then     
@@ -251,15 +260,19 @@ ucross=ucross+1
                     end if
                end if
          end do
+		 call UpdateTransferOutSize
+	     end do
      end subroutine LoadPrtlOutliers
 	 
      subroutine LoadTestPrtlOutliers
 		 implicit none
-          integer:: i,ind
+          integer:: i,ind,off
+		  
+		  do off=0,used_test_prtl_arr_size-1,outp_arr_block_size
 #ifdef OPEN_MP
 !$OMP PARALLEL DO PRIVATE(i,ind)
 #endif	
-          do i=1,used_test_prtl_arr_size
+          do i=1+off,min(off+outp_arr_block_size,used_test_prtl_arr_size)
                if(qtp(i).eq.0) cycle
                if(xtp(i).lt.xmin) then                    
                     if((ytp(i).le.(ymax+xmin-xtp(i))).and.(ytp(i).ge.(ymin-xmin+xtp(i)))) then     
@@ -357,6 +370,8 @@ ucross=ucross+1
                     end if
                end if
          end do
+		 call UpdateTransferOutSize
+	     end do 
      end subroutine LoadTestPrtlOutliers
 #endif
 end module loadprtlout

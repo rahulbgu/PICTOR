@@ -3,6 +3,8 @@ module movdep_gpu
 	use vars 
 	use var_gpu 
 	use fields_gpu !Fitlering subroutines are in fields_gpu
+	use interp_gpu
+	use deposit_gpu
 	use cudafor
 	use cudadevice
 	real, texture, pointer, dimension(:,:,:) :: tEx,tEy,tEz,tBx,tBy,tBz
@@ -12,15 +14,8 @@ contains
 	subroutine MoveDepositPrtlGPU
 		integer :: kc, indi,indf
 		!integer :: np_send_gpu_temp
-		
-
-        call ResetVecCurrentGPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(VecJ_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)			
-		call InitTexExGPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(TexEx_gpu,Ex_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)
-		call InitTexEyGPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(TexEy_gpu,Ey_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)
-		call InitTexEzGPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(TexEz_gpu,Ez_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu)
-		call InitTexBxGPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(TexBx_gpu,Bx_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,Bx_ext0)
-		call InitTexByGPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(TexBy_gpu,By_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,By_ext0)
-		call InitTexBzGPUKernel<<<tGrid_gpu_global,tBlock_gpu_global>>>(TexBz_gpu,Bz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,Bz_ext0)
+			
+		call SetTexFlds
 		
 		tEx=>TexEx_gpu
 		tEy=>TexEy_gpu
@@ -28,22 +23,21 @@ contains
 		tBx=>TexBx_gpu
 		tBy=>TexBy_gpu
 		tBz=>TexBz_gpu
-		
 				
 		
-		!np_send_gpu_temp=0 
-		!np_send_gpu=np_send_gpu_temp
-		
+		call ResetJwide
 		do kc=1,Nchunk_prtl_gpu
 			indi=(kc-1)*chunk_size_prtl_gpu+1
 			indf=(kc-1)*chunk_size_prtl_gpu+used_prtl_chunk(kc)
 		       call MoveDepositPrtlKernel<<<ceiling(real(used_prtl_chunk(kc))/NthreadsGPU), NthreadsGPU>>>(xp_gpu,yp_gpu,zp_gpu,up_gpu,vp_gpu,wp_gpu,flvp_gpu,qp_gpu,flvrqm_gpu,c,sqc,cinv,qi,&
-		                     TexEx_gpu,TexEy_gpu,TexEz_gpu,TexBx_gpu,TexBy_gpu,TexBz_gpu,Jx_gpu,Jy_gpu,Jz_gpu,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,indi,indf)
-			  ! call MoveDepositPrtlKernel<<<ceiling(real(used_prtl_chunk(kc))/NthreadsGPU), NthreadsGPU>>>(xp_gpu,yp_gpu,zp_gpu,up_gpu,vp_gpu,wp_gpu,flvp_gpu,qp_gpu,var1p_gpu,tagp_gpu,flvrqm_gpu,c,sqc,cinv,qi,&
-			  !		         TexEx_gpu,TexEy_gpu,TexEz_gpu,TexBx_gpu,TexBy_gpu,TexBz_gpu,Jx_gpu,Jy_gpu,Jz_gpu,Bx_ext0,By_ext0,Bz_ext0,xmin1_gpu,xmax1_gpu,ymin1_gpu,ymax1_gpu,zmin1_gpu,zmax1_gpu,indi,indf,&
-			!				 qp_send_gpu,xp_send_gpu,yp_send_gpu,zp_send_gpu,up_send_gpu,vp_send_gpu,wp_send_gpu,var1p_send_gpu,flvp_send_gpu,tagp_send_gpu)			 
+		                     TexEx_gpu,TexEy_gpu,TexEz_gpu,TexBx_gpu,TexBy_gpu,TexBz_gpu,Jx_wide_gpu,Jy_wide_gpu,Jz_wide_gpu,mx,my,mz,indi,indf,Jwidth_gpu)
+			 
 		end do 
-		!np_recv_host=np_send_gpu 
+		
+		!Reduction step is performed later in case of curved BC 
+		if(curved_bc.eqv..false.) then  
+            call ReduceJwide
+		end if
 		
 		
 		
@@ -58,9 +52,10 @@ contains
 	
 	subroutine MoveTestPrtlGPU
 		integer :: kc, indi,indf
-#ifdef GPU_EXCLUSIVE		
-		call SetFilteredEfldGPU_Exclusive
-#endif		
+	    
+		if(ntp_gpu.eq.0) return 
+		call SetFilteredEfldGPU
+				
 		do kc=1,Nchunk_test_prtl_gpu
 			indi=(kc-1)*chunk_size_test_prtl_gpu+1
 			indf=(kc-1)*chunk_size_test_prtl_gpu+used_test_prtl_chunk(kc)
@@ -74,18 +69,17 @@ contains
 	
 	!attributes(global) subroutine  MoveDepositPrtlKernel(xp,yp,zp,up,vp,wp,flvp,qp,var1p,tagp,psize,flvrqm,c,sqc,cinv,qi,Ex,Ey,Ez,Bx,By,Bz,Jx,Jy,Jz,Bx_ext0,By_ext0,Bz_ext0,x1,x2,y1,y2,z1,z2,indi,indf,&
 		!qout,xout,yout,zout,uout,vout,wout,var1out,flvout,tagout)
-	attributes(global) subroutine MoveDepositPrtlKernel(xp,yp,zp,up,vp,wp,flvp,qp,flvrqm,c,sqc,cinv,qi,Ex,Ey,Ez,Bx,By,Bz,Jx,Jy,Jz,x1,x2,y1,y2,z1,z2,indi,indf)
+	attributes(global) subroutine MoveDepositPrtlKernel(xp,yp,zp,up,vp,wp,flvp,qp,flvrqm,c,sqc,cinv,qi,Ex,Ey,Ez,Bx,By,Bz,Jx,Jy,Jz,mx,my,mz,indi,indf,jwidth)
 		real, dimension(:) ::xp,yp,zp,up,vp,wp,qp!,var1p
 		integer, dimension(:) :: flvp!,tagp
 		real, dimension(:)  ::flvrqm
 		real, value :: c,sqc,cinv,qi !should put then on gpu as constants
-		integer :: x1,x2,y1,y2,z1,z2
+		integer, value :: mx,my,mz
 		integer, value :: indi,indf
-#ifndef twoD  		
-		real, dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2)  :: Ex,Ey,Ez,Bx,By,Bz,Jx,Jy,Jz
-#else 		
-		real, dimension(x1-2:x2+2,y1-2:y2+2,1:1)  :: Ex,Ey,Ez,Bx,By,Bz,Jx,Jy,Jz
-#endif			
+		integer, value :: jwidth	
+		real, dimension(mx,my,mz)  :: Ex,Ey,Ez,Bx,By,Bz
+		real, dimension(mx,my,mz,jwidth) :: Jx,Jy,Jz
+		
 		
 		!real, dimension(:) ::xout,yout,zout,uout,vout,wout,qout,var1out
 		!integer, dimension(:) :: flvout,tagout
@@ -115,6 +109,7 @@ contains
         real,dimension(4) :: Jx1,Jy1,Jx2,Jy2
 #endif 	
         real,dimension(4) :: Jz1,Jz2
+		integer :: j_ind
 								
 			
 			  n = blockDim%x * (blockIdx%x - 1) + threadIdx%x +(indi-1)
@@ -218,13 +213,12 @@ contains
           j2=floor(yp(n))
           k1=floor(z0)
           k2=floor(zp(n))
-#ifdef twoD
-        k1=1
-        k2=1
-#endif
-               xr=min(real(min(i1,i2)+1),max(real(max(i1,i2)),0.5*(x0+xp(n))))
-               yr=min(real(min(j1,j2)+1),max(real(max(j1,j2)),0.5*(y0+yp(n))))
-               zr=min(real(min(k1,k2)+1),max(real(max(k1,k2)),0.5*(z0+zp(n))))
+
+          xr=min(real(min(i1,i2)+1),max(real(max(i1,i2)),0.5*(x0+xp(n))))
+          yr=min(real(min(j1,j2)+1),max(real(max(j1,j2)),0.5*(y0+yp(n))))
+          zr=min(real(min(k1,k2)+1),max(real(max(k1,k2)),0.5*(z0+zp(n))))
+			   
+
           Fx1=qthis*(xr-x0)
           Fy1=qthis*(yr-y0)
           Fz1=qthis*(zr-z0)
@@ -248,34 +242,71 @@ contains
           Fy2=qthis*(yp(n)-yr)
           Fz2=qthis*(zp(n)-zr)
 
+#ifdef twoD
+          k1=1
+          k2=1
+#endif
+
+
+		  j_ind=mod(n-1,jwidth)+1
+
 
           Jx1(1)=Fx1 * (1.0-Wy1)*(1.0-Wz1)
           Jx1(2)=Fx1 *  Wy1    *(1.0-Wz1)
 #ifndef twoD
-              Jx1(3)= Fx1 * (1.0-Wy1) * Wz1
-              Jx1(4)= Fx1 *  Wy1    * Wz1
+          Jx1(3)= Fx1 * (1.0-Wy1) * Wz1
+          Jx1(4)= Fx1 *  Wy1    * Wz1
+#endif
+
+          stat=atomicAdd(Jx(i1,j1,  k1 ,j_ind  ), Jx1(1) )
+          stat=atomicAdd(Jx(i1,j1+1,k1 ,j_ind ), Jx1(2) )
+#ifndef twoD
+          stat=atomicAdd(Jx(i1,j1,  k1+1,j_ind), Jx1(3))
+          stat=atomicAdd(Jx(i1,j1+1,k1+1,j_ind), Jx1(4))
 #endif
 
           Jx2(1)=Fx2 * (1.0-Wy2)*(1.0-Wz2)
           Jx2(2)=Fx2 *  Wy2    *(1.0-Wz2)
 #ifndef twoD
-               Jx2(3)=Fx2 * (1.0-Wy2)* Wz2
-               Jx2(4)=Fx2 *  Wy2    * Wz2
+          Jx2(3)=Fx2 * (1.0-Wy2)* Wz2
+          Jx2(4)=Fx2 *  Wy2    * Wz2
+#endif
+
+          stat=atomicAdd(Jx(i2,j2,  k2 ,j_ind ), Jx2(1) )
+          stat=atomicAdd(Jx(i2,j2+1,k2 ,j_ind ), Jx2(2) )
+#ifndef twoD
+          stat= atomicAdd(Jx(i2,j2,  k2+1,j_ind), Jx2(3))
+          stat= atomicAdd(Jx(i2,j2+1,k2+1,j_ind), Jx2(4))
 #endif
 
 
           Jy1(1)=Fy1 * (1.0-Wx1)*(1.0-Wz1)
           Jy1(2)=Fy1 *  Wx1    *(1.0-Wz1)
 #ifndef twoD
-               Jy1(3)=Fy1 * (1.0-Wx1)* Wz1
-               Jy1(4)=Fy1 *  Wx1    * Wz1
+          Jy1(3)=Fy1 * (1.0-Wx1)* Wz1
+          Jy1(4)=Fy1 *  Wx1    * Wz1
 #endif
+
+          stat=atomicAdd(Jy(i1  ,j1,k1  ,j_ind), Jy1(1))
+          stat=atomicAdd(Jy(i1+1,j1,k1  ,j_ind), Jy1(2))
+#ifndef twoD
+          stat=atomicAdd(Jy(i1  ,j1,k1+1,j_ind), Jy1(3))
+          stat=atomicAdd(Jy(i1+1,j1,k1+1,j_ind), Jy1(4))
+#endif
+
 
           Jy2(1)=Fy2 * (1.0-Wx2)*(1.0-Wz2)
           Jy2(2)=Fy2 *  Wx2    *(1.0-Wz2)
 #ifndef twoD
-             Jy2(3)= Fy2 * (1.0-Wx2)* Wz2
-             Jy2(4)= Fy2 *  Wx2    * Wz2
+          Jy2(3)= Fy2 * (1.0-Wx2)* Wz2
+          Jy2(4)= Fy2 *  Wx2    * Wz2
+#endif
+
+          stat=atomicAdd(Jy(i2  ,j2,k2  ,j_ind), Jy2(1))
+          stat=atomicAdd( Jy(i2+1,j2,k2 ,j_ind), Jy2(2))
+#ifndef twoD
+          stat=atomicAdd(Jy(i2  ,j2,k2+1,j_ind), Jy2(3))
+          stat=atomicAdd(Jy(i2+1,j2,k2+1,j_ind), Jy2(4))
 #endif
 
 
@@ -283,6 +314,12 @@ contains
           Jz1(2)=Fz1 *  Wx1    *(1.0-Wy1)
           Jz1(3)=Fz1 * (1.0-Wx1)* Wy1
           Jz1(4)=Fz1 *  Wx1    * Wy1
+		  
+
+          stat=atomicAdd(Jz(i1  ,j1  ,k1,j_ind), Jz1(1))
+          stat=atomicAdd(Jz(i1+1,j1  ,k1,j_ind), Jz1(2))
+          stat=atomicAdd(Jz(i1  ,j1+1,k1,j_ind), Jz1(3))
+          stat=atomicAdd(Jz(i1+1,j1+1,k1,j_ind), Jz1(4))		  
 
           Jz2(1)=Fz2 * (1.0-Wx2)*(1.0-Wy2)
           Jz2(2)=Fz2 *  Wx2    *(1.0-Wy2)
@@ -290,45 +327,11 @@ contains
           Jz2(4)=Fz2 *  Wx2    * Wy2
 
 
+          stat=atomicAdd(Jz(i2  ,j2  ,k2,j_ind), Jz2(1))
+          stat=atomicAdd(Jz(i2+1,j2  ,k2,j_ind), Jz2(2))
+          stat=atomicAdd(Jz(i2  ,j2+1,k2,j_ind), Jz2(3))
+          stat=atomicAdd(Jz(i2+1,j2+1,k2,j_ind), Jz2(4))
 
-          stat=atomicAdd(Jx(i1,j1,  k1  ), Jx1(1) )
-          stat=atomicAdd(Jx(i1,j1+1,k1  ), Jx1(2) )
-#ifndef twoD
-               stat=atomicAdd(Jx(i1,j1,  k1+1), Jx1(3))
-               stat=atomicAdd(Jx(i1,j1+1,k1+1), Jx1(4))
-#endif
-
-          stat=atomicAdd(Jx(i2,j2,  k2  ), Jx2(1) )
-          stat=atomicAdd(Jx(i2,j2+1,k2  ), Jx2(2) )
-#ifndef twoD
-               stat= atomicAdd(Jx(i2,j2,  k2+1), Jx2(3))
-               stat= atomicAdd(Jx(i2,j2+1,k2+1), Jx2(4))
-#endif
-
-
-          stat=atomicAdd(Jy(i1  ,j1,k1  ), Jy1(1))
-          stat=atomicAdd(Jy(i1+1,j1,k1  ), Jy1(2))
-#ifndef twoD
-               stat=atomicAdd(Jy(i1  ,j1,k1+1), Jy1(3))
-               stat=atomicAdd(Jy(i1+1,j1,k1+1), Jy1(4))
-#endif
-          stat=atomicAdd(Jy(i2  ,j2,k2  ), Jy2(1))
-          stat=atomicAdd( Jy(i2+1,j2,k2  ), Jy2(2))
-#ifndef twoD
-               stat=atomicAdd(Jy(i2  ,j2,k2+1), Jy2(3))
-               stat=atomicAdd(Jy(i2+1,j2,k2+1), Jy2(4))
-#endif
-
-
-          stat=atomicAdd(Jz(i1  ,j1  ,k1), Jz1(1))
-          stat=atomicAdd(Jz(i1+1,j1  ,k1), Jz1(2))
-          stat=atomicAdd(Jz(i1  ,j1+1,k1), Jz1(3))
-          stat=atomicAdd(Jz(i1+1,j1+1,k1), Jz1(4))
-
-          stat=atomicAdd(Jz(i2  ,j2  ,k2), Jz2(1))
-          stat=atomicAdd(Jz(i2+1,j2  ,k2), Jz2(2))
-          stat=atomicAdd(Jz(i2  ,j2+1,k2), Jz2(3))
-          stat=atomicAdd(Jz(i2+1,j2+1,k2), Jz2(4))
  
               
 ! Periodic Boundary conditions 
@@ -341,37 +344,7 @@ contains
              end if
 #endif
 
-! !separate the particles that are leaving the GPU domain [led to slow down, possible due to atomic operation]
-! #ifndef twoD
-!          if((xp(n).lt.x1).or.(xp(n).gt.x2).or.(yp(n).lt.y1).or.(yp(n).gt.y2).or.(zp(n).lt.z1).or.(zp(n).gt.z2)) then
-! #else
-!          if((xp(n).lt.x1).or.(xp(n).gt.x2).or.(yp(n).lt.y1).or.(yp(n).gt.y2)) then
-! #endif
-! 						 InsertAt=atomicinc(np_send_gpu,1147483647)
-! 						 InsertAt=InsertAt+1
-! 						 qout(InsertAt)=qp(n)
-! 					     xout(InsertAt)=xp(n)
-! 						 yout(InsertAt)=yp(n)
-! 						 zout(InsertAt)=zp(n)
-! 						 uout(InsertAt)=up(n)
-! 						 vout(InsertAt)=vp(n)
-! 						 wout(InsertAt)=wp(n)
-! 						 var1out(InsertAt)=var1p(n)
-! 						 flvout(InsertAt)=flvp(n)
-! 						 tagout(InsertAt)=tagp(n)
-!
-! 						 ! delete the particle
-! 						 qp(n)=0
-! 						 xp(n)=x1+0.5
-! 						 yp(n)=y1+0.5
-! 						 zp(n)=z1+0.5
-! 						 up(n)=0
-! 						 vp(n)=0
-! 						 wp(n)=0
-! 						 var1p(n)=0
-! 						 tagp(n)=0
-! 						 flvp(n)=0
-! 		 end if			  
+		  
 
 end subroutine MoveDepositPrtlKernel
 
@@ -514,7 +487,7 @@ end subroutine MoveTestPrtlKernel
 
 
 !---------------------------------------------------------------------------
-! Optimized Particle Mover 
+! Outdated !!!! should be not used!!!     Optimized Particle Mover 
 !---------------------------------------------------------------------------
 
 #ifdef GPU_USE_INTRINSICS	
@@ -1023,164 +996,5 @@ end subroutine MoveDepositPrtlKernel
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- 	attributes(global) subroutine ResetVecCurrentGPUKernel(Fld,x1,x2,y1,y2,z1,z2)
- 		integer :: x1,x2,y1,y2,z1,z2
-#ifndef twoD
- 		real, dimension(12,x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: Fld
-#else 
-        real, dimension(8,x1-2:x2+2,y1-2:y2+2,1:1) :: Fld
-#endif  		
- 		integer :: i,j,k,nn
-		
- 		i = (blockIdx%x-1)*blockDim%x + threadIdx%x +x1-3
- 		j = (blockIdx%y-1)*blockDim%y + threadIdx%y +y1-3
-#ifndef twoD 		
- 		k = (blockIdx%z-1)*blockDim%z + threadIdx%z +z1-3
-#else
-        k=1
-#endif  
-         if((i.le.x2+2).and.(j.le.y2+2).and.(k.le.z2+2)) then 
-#ifdef twoD			 
-			 do nn=1,8
-#else 
-             do nn=1,12
-#endif 				 
-			     Fld(nn,i,j,k)=0.0
-		     end do 
-		 end if 
- 	end subroutine ResetVecCurrentGPUKernel
-	
-	
-	attributes(global) subroutine InitTexExGPUKernel(TexFld,Fld,x1,x2,y1,y2,z1,z2)
- 		integer :: x1,x2,y1,y2,z1,z2
-#ifndef twoD 		
- 		real, dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: TexFld,Fld
-#else 
-        real, dimension(x1-2:x2+2,y1-2:y2+2,1) :: TexFld,Fld
-#endif  		
- 		integer :: i,j,k
-		
- 		i = (blockIdx%x-1)*blockDim%x + threadIdx%x +x1-2
- 		j = (blockIdx%y-1)*blockDim%y + threadIdx%y +y1-3
-#ifndef twoD 		
- 		k = (blockIdx%z-1)*blockDim%z + threadIdx%z +z1-3
-#else
-        k=1
-#endif 		
-		if((i.le.x2+2).and.(j.le.y2+2).and.(k.le.z2+2)) TexFld(i,j,k)=0.5*(Fld(i-1,j,k)+Fld(i,j,k))
-	end subroutine InitTexExGPUKernel
-	
-	attributes(global) subroutine InitTexEyGPUKernel(TexFld,Fld,x1,x2,y1,y2,z1,z2)
- 		integer :: x1,x2,y1,y2,z1,z2
-#ifndef twoD 		
- 		real, dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: TexFld,Fld
-#else 
-        real, dimension(x1-2:x2+2,y1-2:y2+2,1) :: TexFld,Fld
-#endif  		
- 		integer :: i,j,k
-		
- 		i = (blockIdx%x-1)*blockDim%x + threadIdx%x +x1-3
- 		j = (blockIdx%y-1)*blockDim%y + threadIdx%y +y1-2
-#ifndef twoD 		
- 		k = (blockIdx%z-1)*blockDim%z + threadIdx%z +z1-3
-#else
-        k=1
-#endif 		
-		if((i.le.x2+2).and.(j.le.y2+2).and.(k.le.z2+2)) TexFld(i,j,k)=0.5*(Fld(i,j-1,k)+Fld(i,j,k))
-	end subroutine InitTexEyGPUKernel
-	
-	attributes(global) subroutine InitTexEzGPUKernel(TexFld,Fld,x1,x2,y1,y2,z1,z2)
- 		integer :: x1,x2,y1,y2,z1,z2
-#ifndef twoD 		
- 		real, dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: TexFld,Fld
-#else 
-        real, dimension(x1-2:x2+2,y1-2:y2+2,1) :: TexFld,Fld
-#endif  		
- 		integer :: i,j,k
-		
- 		i = (blockIdx%x-1)*blockDim%x + threadIdx%x +x1-3
- 		j = (blockIdx%y-1)*blockDim%y + threadIdx%y +y1-3
-#ifndef twoD 		
- 		k = (blockIdx%z-1)*blockDim%z + threadIdx%z +z1-2
-		if((i.le.x2+2).and.(j.le.y2+2).and.(k.le.z2+2)) TexFld(i,j,k)=0.5*(Fld(i,j,k-1)+Fld(i,j,k))
-#else
-        k=1
-		if((i.le.x2+2).and.(j.le.y2+2)) TexFld(i,j,k)=Fld(i,j,k)
-#endif 		
-	end subroutine InitTexEzGPUKernel
-	
-	attributes(global) subroutine InitTexBxGPUKernel(TexFld,Fld,x1,x2,y1,y2,z1,z2,extB)
- 		integer :: x1,x2,y1,y2,z1,z2
-#ifndef twoD 		
- 		real, dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: TexFld,Fld
-#else 
-        real, dimension(x1-2:x2+2,y1-2:y2+2,1) :: TexFld,Fld
-#endif  		
-        real, value :: extB 		
- 		integer :: i,j,k
-		
- 		i = (blockIdx%x-1)*blockDim%x + threadIdx%x +x1-3
- 		j = (blockIdx%y-1)*blockDim%y + threadIdx%y +y1-2
-#ifndef twoD 		
- 		k = (blockIdx%z-1)*blockDim%z + threadIdx%z +z1-2
-		if((i.le.x2+2).and.(j.le.y2+2).and.(k.le.z2+2)) TexFld(i,j,k)=0.25*(Fld(i,j-1,k-1)+Fld(i,j,k-1)+Fld(i,j-1,k)+Fld(i,j,k)) + extB
-#else
-        k=1
-		if((i.le.x2+2).and.(j.le.y2+2)) TexFld(i,j,k)=0.5*(Fld(i,j-1,k)+Fld(i,j,k)) +extB
-#endif 		
-	end subroutine InitTexBxGPUKernel
-	attributes(global) subroutine InitTexByGPUKernel(TexFld,Fld,x1,x2,y1,y2,z1,z2,extB)
- 		integer :: x1,x2,y1,y2,z1,z2
-#ifndef twoD 		
- 		real, dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: TexFld,Fld
-#else 
-        real, dimension(x1-2:x2+2,y1-2:y2+2,1) :: TexFld,Fld
-#endif  
-        real, value :: extB 		
- 		integer :: i,j,k
-		
- 		i = (blockIdx%x-1)*blockDim%x + threadIdx%x +x1-2
- 		j = (blockIdx%y-1)*blockDim%y + threadIdx%y +y1-3
-#ifndef twoD 		
- 		k = (blockIdx%z-1)*blockDim%z + threadIdx%z +z1-2
-		if((i.le.x2+2).and.(j.le.y2+2).and.(k.le.z2+2)) TexFld(i,j,k)=0.25*(Fld(i-1,j,k-1)+Fld(i-1,j,k)+Fld(i,j,k-1)+Fld(i,j,k)) +extB
-#else
-        k=1
-		if((i.le.x2+2).and.(j.le.y2+2)) TexFld(i,j,k)=0.5*(Fld(i-1,j,k)+Fld(i,j,k)) +extB
-#endif 		
-	end subroutine InitTexByGPUKernel
-	attributes(global) subroutine InitTexBzGPUKernel(TexFld,Fld,x1,x2,y1,y2,z1,z2,extB)
- 		integer :: x1,x2,y1,y2,z1,z2
-#ifndef twoD 		
- 		real, dimension(x1-2:x2+2,y1-2:y2+2,z1-2:z2+2) :: TexFld,Fld
-#else 
-        real, dimension(x1-2:x2+2,y1-2:y2+2,1) :: TexFld,Fld
-#endif  
-        real, value :: extB		
- 		integer :: i,j,k
-		
- 		i = (blockIdx%x-1)*blockDim%x + threadIdx%x +x1-2
- 		j = (blockIdx%y-1)*blockDim%y + threadIdx%y +y1-2
-#ifndef twoD 		
- 		k = (blockIdx%z-1)*blockDim%z + threadIdx%z +z1-3
-#else
-        k=1
-#endif 		
-        if((i.le.x2+2).and.(j.le.y2+2).and.(k.le.z2+2)) TexFld(i,j,k)=0.25*(Fld(i-1,j-1,k)+Fld(i-1,j,k)+Fld(i,j-1,k)+Fld(i,j,k)) +extB
-	end subroutine InitTexBzGPUKernel
 	
 end module movdep_gpu

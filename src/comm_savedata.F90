@@ -180,7 +180,7 @@ contains
                    end do
                    print*,'Total Number of particle in the Simulations at step no.',t,' is ::',np_total
                     if(t.eq.0) np0=np_total
-                    if(np_total.ne.np0) STOP 'Some Particles have gone missing'
+                    !if(np_total.ne.np0) STOP 'Some Particles have gone missing'
                else
                     call MPI_SEND(np,1,MPI_INTEGER,0,proc,MPI_COMM_WORLD,ierr)
                end if

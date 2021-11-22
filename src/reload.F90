@@ -5,123 +5,86 @@ module reload
 	 INTEGER(HID_T) :: h5real_psn
 contains 
 	
-	 subroutine RestartMPI
-         write(str1,'(I0)') restart_time
-         write(str2,'(I0)') proc
-         fname=trim(data_folder)//"/restart"//"/param_"//trim(str2)//"_"//trim(str1)
+     subroutine CheckRestart
+		 logical :: file_exists
+		 fname=trim(data_folder)//"/restart"//"/TimeStep"
+		 INQUIRE(FILE=fname, EXIST=file_exists)
+		 if(file_exists) restart=.true.
+	 end subroutine CheckRestart	
+	 
+	 subroutine InitRestart
+         fname=trim(data_folder)//"/restart"//"/TimeStep"
          data_dim1(1)=1
 		 call h5open_f(err)
          call h5fopen_f(fname,H5F_ACC_RDONLY_F,fid, err)
-         call h5dopen_f(fid,'lproc', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,lproc,data_dim1,err)
-         call h5dopen_f(fid,'rproc', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,rproc,data_dim1,err)
-         call h5dopen_f(fid,'tproc', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,tproc,data_dim1,err)
-         call h5dopen_f(fid,'bproc', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,bproc,data_dim1,err)
-         call h5dopen_f(fid,'uproc', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,uproc,data_dim1,err)
-         call h5dopen_f(fid,'dproc', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,dproc,data_dim1,err)
+         call h5dopen_f(fid,'restart_time', dset_id, err)
+         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,restart_time,data_dim1,err)
+		 call h5dclose_f(dset_id,err) 
+		 call h5fclose_f(fid,err)
+         call h5close_f(err)
+		 
+		 if(proc.eq.0) then
+			 print*,'-------  Restarting the simulation!  --------'
+			 print*,'Loading the data saved at Time Step =',restart_time
+			 print*,'======================================================='
+		 end if
+		 
+         write(str1,'(I0)') restart_time
+		 write(str2,'(I0)') proc
+		 
+		 call h5open_f(err)
+         select case(psn)
+         case(kind(1.0d0))
+            call h5tcopy_f(H5T_NATIVE_DOUBLE,h5real_psn,err)
+         case(kind(1.0e0))
+            call h5tcopy_f(H5T_NATIVE_REAL,h5real_psn,err)
+         end select
+		 call h5close_f(err)
+		 tstart=restart_time+1
+		 
+	 end subroutine InitRestart
+	 subroutine RestartMPI
+
+         fname=trim(data_folder)//"/restart"//"/param_"//trim(str2)//"_"//trim(str1)
+		 call h5open_f(err)
+         call h5fopen_f(fname,H5F_ACC_RDONLY_F,fid, err)
+		 call HDF5readINT(fid,'lproc',lproc)
+		 call HDF5readINT(fid,'rproc',rproc)
+		 call HDF5readINT(fid,'tproc',tproc)
+		 call HDF5readINT(fid,'bproc',bproc)
+		 call HDF5readINT(fid,'uproc',uproc)
+		 call HDF5readINT(fid,'dproc',dproc)
+		 
 		 call h5fclose_f(fid,err)
          call h5close_f(err)
 	 end subroutine RestartMPI 
      subroutine RestartInitParam
-          write(str1,'(I0)') restart_time
-          write(str2,'(I0)') proc
-          fname=trim(data_folder)//"/restart"//"/param_"//trim(str2)//"_"//trim(str1)
-          data_dim1(1)=1
-          call h5open_f(err)
-          call h5fopen_f(fname,H5F_ACC_RDONLY_F,fid, err)
-          call h5dopen_f(fid,'mx', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,mx,data_dim1,err)
-          call h5dclose_f(dset_id,err) 
-          call h5dopen_f(fid,'my', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,my,data_dim1,err)
-          call h5dclose_f(dset_id,err) 
-          call h5dopen_f(fid,'mz', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,mz,data_dim1,err)
-          call h5dclose_f(dset_id,err) 
-          call h5dopen_f(fid,'prtl_arr_size', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,prtl_arr_size,data_dim1,err)
-          call h5dclose_f(dset_id,err) 
-          call h5dopen_f(fid,'test_prtl_arr_size', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,test_prtl_arr_size,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'used_prtl_arr_size', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,used_prtl_arr_size,data_dim1,err)
-          call h5dclose_f(dset_id,err)  
-          call h5dopen_f(fid,'used_test_prtl_arr_size', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,used_test_prtl_arr_size,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'np', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,np,data_dim1,err)
-          call h5dclose_f(dset_id,err) 
-          call h5dopen_f(fid,'ntp', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,ntp,data_dim1,err)
-          call h5dclose_f(dset_id,err) 
 
-          tstart=restart_time+1
-          allocate(qp(prtl_arr_size))
-          allocate(xp(prtl_arr_size)) 
-          allocate(yp(prtl_arr_size)) 
-          allocate(zp(prtl_arr_size)) 
-          allocate(up(prtl_arr_size)) 
-          allocate(vp(prtl_arr_size)) 
-          allocate(wp(prtl_arr_size)) 
-          allocate(tagp(prtl_arr_size)) 
-          allocate(flvp(prtl_arr_size))
-          allocate(var1p(prtl_arr_size))
+          fname=trim(data_folder)//"/restart"//"/param_"//trim(str2)//"_"//trim(str1)
+          call h5open_f(err)
 		  
-		  
-          allocate(qtp(prtl_arr_size))
-          allocate(xtp(prtl_arr_size)) 
-          allocate(ytp(prtl_arr_size)) 
-          allocate(ztp(prtl_arr_size)) 
-          allocate(utp(prtl_arr_size)) 
-          allocate(vtp(prtl_arr_size)) 
-          allocate(wtp(prtl_arr_size)) 
-          allocate(tagtp(prtl_arr_size)) 
-          allocate(flvtp(prtl_arr_size))
-          allocate(var1tp(prtl_arr_size))	  
-          
-!        call h5dopen_f(fid,'gmin_elc', dset_id, err)
-!         call h5dread_f(dset_id,H5T_NATIVE_REAL,gmin_elc,data_dim1,err)
-!           call h5dclose_f(dset_id,err)
-!         call h5dopen_f(fid,'gmax_elc', dset_id, err)
-!         call h5dread_f(dset_id,H5T_NATIVE_REAL,gmax_elc,data_dim1,err)
-!           call h5dclose_f(dset_id,err)
-!         call h5dopen_f(fid,'gbin_size_elc', dset_id, err)
-!         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,gbin_width_elc,data_dim1,err)
-!           call h5dclose_f(dset_id,err)
-!         call h5dopen_f(fid,'gmin_ion', dset_id, err)
-!         call h5dread_f(dset_id,H5T_NATIVE_REAL,gmin_ion,data_dim1,err)
-!           call h5dclose_f(dset_id,err)
-!         call h5dopen_f(fid,'gmax_ion', dset_id, err)
-!         call h5dread_f(dset_id,H5T_NATIVE_REAL,gmax_ion,data_dim1,err)
-!           call h5dclose_f(dset_id,err)
-!         call h5dopen_f(fid,'gbin_size_ion', dset_id, err)
-!         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,gbin_width_ion,data_dim1,err)
-!           call h5dclose_f(dset_id,err)
+          call h5fopen_f(fname,H5F_ACC_RDONLY_F,fid, err)
+		  call HDF5readINT(fid,'mx',mx)
+		  call HDF5readINT(fid,'my',my)
+		  call HDF5readINT(fid,'mz',mz)
+		  call HDF5readINT(fid,'prtl_arr_size',prtl_arr_size)
+		  call HDF5readINT(fid,'used_prtl_arr_size',used_prtl_arr_size)
+		  call HDF5readINT(fid,'test_prtl_arr_size',test_prtl_arr_size)
+		  call HDF5readINT(fid,'used_test_prtl_arr_size',used_test_prtl_arr_size)
+		  call HDF5readINT(fid,'np',np)
+          call HDF5readINT(fid,'ntp',ntp)
+		 
           call h5fclose_f(fid,err)
           call h5close_f(err)
      end subroutine RestartInitParam
      subroutine RestartInitFlds
-          write(str1,'(I0)') restart_time
-          write(str2,'(I0)') proc
+
           fname=trim(data_folder)//"/restart"//"/fld_"//trim(str2)//"_"//trim(str1)
           data_dim3(1)=mx
           data_dim3(2)=my
           data_dim3(3)=mz
 		  
-          call h5open_f(err)
-          select case(psn)
-          case(kind(1.0d0))
-             call h5tcopy_f(H5T_NATIVE_DOUBLE,h5real_psn,err)
-          case(kind(1.0e0))
-             call h5tcopy_f(H5T_NATIVE_REAL,h5real_psn,err)
-          end select		  
+          call h5open_f(err)		  
           call h5fopen_f(fname,H5F_ACC_RDONLY_F,fid, err)		  
           call h5dopen_f(fid,'Ex', dset_id, err)		  
           call h5dread_f(dset_id,h5real_psn,Ex,data_dim3,err)
@@ -146,15 +109,8 @@ contains
      end subroutine RestartInitFlds
 	 
      subroutine RestartInitPrtl
-          write(str1,'(I0)') restart_time
-          write(str2,'(I0)') proc
+
           call h5open_f(err)
-          select case(psn)
-          case(kind(1.0d0))
-             call h5tcopy_f(H5T_NATIVE_DOUBLE,h5real_psn,err)
-          case(kind(1.0e0))
-             call h5tcopy_f(H5T_NATIVE_REAL,h5real_psn,err)
-          end select
 		  
           fname=trim(data_folder)//"/restart"//"/param_"//trim(str2)//"_"//trim(str1)
           data_dim1(1)=1
@@ -163,7 +119,7 @@ contains
           call h5dread_f(dset_id,H5T_NATIVE_INTEGER,Nflvr,data_dim1,err)
           call h5dclose_f(dset_id,err) 
 		  
-          allocate(flvrqm(Nflvr),FlvrSaveFldData(Nflvr),FlvrType(Nflvr),FlvrSplitPrtl(Nflvr))
+          allocate(flvrqm(Nflvr),FlvrSaveFldData(Nflvr),FlvrType(Nflvr),FlvrSpare(Nflvr))
           allocate(CurrentTagID(Nflvr),TagCounter(Nflvr))
           data_dim1(1)=Nflvr
           call h5dopen_f(fid,'flvrqm', dset_id, err)
@@ -175,8 +131,8 @@ contains
           call h5dopen_f(fid,'FlvrType', dset_id, err)
           call h5dread_f(dset_id,h5real_psn,FlvrType,data_dim1,err)
           call h5dclose_f(dset_id,err) 
-          call h5dopen_f(fid,'FlvrSplitPrtl', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,FlvrSplitPrtl,data_dim1,err)
+          call h5dopen_f(fid,'FlvrSpare', dset_id, err)
+          call h5dread_f(dset_id,h5real_psn,FlvrSpare,data_dim1,err)
           call h5dclose_f(dset_id,err) 
           call h5dopen_f(fid,'CurrentTagID', dset_id, err)
           call h5dread_f(dset_id,H5T_NATIVE_INTEGER,CurrentTagID,data_dim1,err)
@@ -187,128 +143,147 @@ contains
 		  
 		  !Now Load Prtl Data 
           fname=trim(data_folder)//"/restart"//"/prtl_"//trim(str2)//"_"//trim(str1)
-          data_dim1(1)=prtl_arr_size
+          data_dim1(1)=used_prtl_arr_size
           call h5fopen_f(fname,H5F_ACC_RDONLY_F,fid, err)
           call h5dopen_f(fid,'qp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,qp,data_dim1,err)
+          call h5dread_f(dset_id,h5real_psn,qp(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
           call h5dopen_f(fid,'flvp', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,flvp,data_dim1,err)
+          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,flvp(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
           call h5dopen_f(fid,'tagp', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,tagp,data_dim1,err)
+          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,tagp(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
           call h5dopen_f(fid,'xp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,xp,data_dim1,err)
+          call h5dread_f(dset_id,h5real_psn,xp(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
           call h5dopen_f(fid,'yp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,yp,data_dim1,err)
+          call h5dread_f(dset_id,h5real_psn,yp(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
           call h5dopen_f(fid,'zp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,zp,data_dim1,err)
+          call h5dread_f(dset_id,h5real_psn,zp(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
           call h5dopen_f(fid,'up', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,up,data_dim1,err)
+          call h5dread_f(dset_id,h5real_psn,up(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
           call h5dopen_f(fid,'vp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,vp,data_dim1,err)
+          call h5dread_f(dset_id,h5real_psn,vp(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
           call h5dopen_f(fid,'wp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,wp,data_dim1,err)
+          call h5dread_f(dset_id,h5real_psn,wp(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
           call h5dopen_f(fid,'var1p', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,var1p,data_dim1,err)
+          call h5dread_f(dset_id,h5real_psn,var1p(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
- 		  
-          call h5dopen_f(fid,'qtp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,qtp,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'flvtp', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,flvtp,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'tagtp', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,tagtp,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'xtp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,xtp,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'ytp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,ytp,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'ztp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,ztp,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'utp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,utp,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'vtp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,vtp,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'wtp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,wtp,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'var1tp', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,var1tp,data_dim1,err)
-          call h5dclose_f(dset_id,err)
-		  		  
+ 		  		  		  
 		  call h5fclose_f(fid,err)
           call h5close_f(err)
      end subroutine RestartInitPrtl
 	 
 	 subroutine RestartAllVars
-         write(str1,'(I0)') restart_time
-         write(str2,'(I0)') proc
+		 integer :: nSubDomainsZthis
+
          fname=trim(data_folder)//"/restart"//"/param_"//trim(str2)//"_"//trim(str1)
-         data_dim1(1)=1
          call h5open_f(err)
          call h5fopen_f(fname,H5F_ACC_RDONLY_F,fid, err)
+
+		 nSubDomainsZthis=nSubDomainsZ	 
+#ifdef twoD
+		 nSubDomainsZthis=1
+#endif	
+   
          call h5dopen_f(fid,'xborders', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,xborders,data_dim1,err)
+		 data_dim1(1)=nSubDomainsX+1
+         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,xborders(0:nSubDomainsX),data_dim1,err)
          call h5dclose_f(dset_id,err)
          call h5dopen_f(fid,'yborders', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,yborders,data_dim1,err)
+		 data_dim1(1)=nSubDomainsY+1
+         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,yborders(0:nSubDomainsY),data_dim1,err)
          call h5dclose_f(dset_id,err)
          call h5dopen_f(fid,'zborders', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,zborders,data_dim1,err)
+		 data_dim1(1)=nSubDomainsZthis+1
+         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,zborders(0:nSubDomainsZthis),data_dim1,err)
          call h5dclose_f(dset_id,err)
-		 print*,'xborders',xborders
-		 
+	 
+		 data_dim1(1)=nSubDomainsX*nSubDomainsY*nSubDomainsZthis
          call h5dopen_f(fid,'procxind', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,procxind,data_dim1,err)
+         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,procxind(0:nSubDomainsX*nSubDomainsY*nSubDomainsZthis-1),data_dim1,err)
          call h5dclose_f(dset_id,err)
          call h5dopen_f(fid,'procyind', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,procyind,data_dim1,err)
+         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,procyind(0:nSubDomainsX*nSubDomainsY*nSubDomainsZthis-1),data_dim1,err)
          call h5dclose_f(dset_id,err)
          call h5dopen_f(fid,'proczind', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,proczind,data_dim1,err)
+         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,proczind(0:nSubDomainsX*nSubDomainsY*nSubDomainsZthis-1),data_dim1,err)
          call h5dclose_f(dset_id,err)
+		    
+		 call HDF5readINT(fid,'fdataxi_box',fdataxi_box)
+		 call HDF5readINT(fid,'fdataxf_box',fdataxf_box)
+		 call HDF5readINT(fid,'fdatayi_box',fdatayi_box)
+		 call HDF5readINT(fid,'fdatayf_box',fdatayf_box)
+		 call HDF5readINT(fid,'fdatazi_box',fdatazi_box)
+		 call HDF5readINT(fid,'fdatazf_box',fdatazf_box)
 		 
-         call h5dopen_f(fid,'fdataxi_box', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,fdataxi_box,data_dim1,err)
-         call h5dclose_f(dset_id,err)
-         call h5dopen_f(fid,'fdataxf_box', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,fdataxf_box,data_dim1,err)
-         call h5dclose_f(dset_id,err)
-         call h5dopen_f(fid,'fdatayi_box', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,fdatayi_box,data_dim1,err)
-         call h5dclose_f(dset_id,err)
-         call h5dopen_f(fid,'fdatayf_box', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,fdatayf_box,data_dim1,err)
-         call h5dclose_f(dset_id,err)
-         call h5dopen_f(fid,'fdatazi_box', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,fdatazi_box,data_dim1,err)
-         call h5dclose_f(dset_id,err)
-         call h5dopen_f(fid,'fdatazf_box', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,fdatazf_box,data_dim1,err)
-         call h5dclose_f(dset_id,err)
-		 
-         data_dim3(3)=3
+	     data_dim3(1)=nSubDomainsX
+	     data_dim3(2)=nSubDomainsY
+		 data_dim3(3)=nSubDomainsZthis
+	 		 
          call h5dopen_f(fid,'proc_grid', dset_id, err)
-         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,proc_grid,data_dim3,err)
+         call h5dread_f(dset_id,H5T_NATIVE_INTEGER,proc_grid(0:nSubDomainsX-1,0:nSubDomainsY-1,0:nSubDomainsZthis-1),data_dim3,err)
          call h5dclose_f(dset_id,err)
 		 call h5fclose_f(fid,err)
 		 call h5close_f(err)
 		 
 	 end subroutine RestartAllVars
+	 
+	 subroutine RestartAllocatePrtlMem
+
+         allocate(qp(prtl_arr_size))
+         allocate(xp(prtl_arr_size)) 
+         allocate(yp(prtl_arr_size)) 
+         allocate(zp(prtl_arr_size)) 
+         allocate(up(prtl_arr_size)) 
+         allocate(vp(prtl_arr_size)) 
+         allocate(wp(prtl_arr_size)) 
+         allocate(tagp(prtl_arr_size)) 
+         allocate(flvp(prtl_arr_size))
+         allocate(var1p(prtl_arr_size))
+		 qp=0
+		 flvp=0
+		 
+         allocate(qtp(test_prtl_arr_size))
+         allocate(xtp(test_prtl_arr_size)) 
+         allocate(ytp(test_prtl_arr_size)) 
+         allocate(ztp(test_prtl_arr_size)) 
+         allocate(utp(test_prtl_arr_size)) 
+         allocate(vtp(test_prtl_arr_size)) 
+         allocate(wtp(test_prtl_arr_size)) 
+         allocate(tagtp(test_prtl_arr_size)) 
+         allocate(flvtp(test_prtl_arr_size))
+         allocate(var1tp(test_prtl_arr_size))
+		 qtp=0 
+		 flvtp=0
+		 
+	 end subroutine RestartAllocatePrtlMem
      
+	 subroutine HDF5readINT(fid,varname,var)
+	      INTEGER(HID_T)                 :: fid,dset_id 
+	      INTEGER(HSIZE_T), dimension(1) :: data_dim1
+	      character(len=*)               :: varname
+	      integer                        :: var,err
+	      data_dim1(1)=1
+		  call h5dopen_f(fid,varname, dset_id, err)
+	      call h5dread_f(dset_id,H5T_NATIVE_INTEGER,var,data_dim1,err)
+	      call h5dclose_f(dset_id,err) 
+	 end subroutine HDF5readINT
+
+	 subroutine HDF5readReal(fid,varname,var)
+	      INTEGER(HID_T)                 :: fid,dset_id 
+	      INTEGER(HSIZE_T), dimension(1) :: data_dim1
+	      character(len=*)               :: varname
+	      integer                        :: var,err
+	      data_dim1(1)=1
+		  call h5dopen_f(fid,varname, dset_id, err)
+	      call h5dread_f(dset_id,h5real_psn,var,data_dim1,err)
+	      call h5dclose_f(dset_id,err) 
+	 end subroutine HDF5readReal
 end module reload

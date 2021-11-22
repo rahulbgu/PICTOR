@@ -8,7 +8,7 @@ module savedata
      !use setup
      use comm_savedata                                      
      use fields, only : UpdateCurrentsAllEdges,SyncCurrentEdges
-#if defined(gpu) || defined(GPU_EXCLUSIVE) 
+#ifdef gpu
      use comm_fld_gpu
 	 use savedata_gpu
 #endif 
@@ -30,7 +30,7 @@ contains
            if((spec_save_period.gt.0).and.(modulo(t,spec_save_period).eq.0)) call save_spec_master_all_prtl 
 
            if((spec_save_period.gt.0).and.(modulo(t,spec_save_period).eq.0)) call save_total_energy ! to save energy data
-           !if((modulo(t,1).eq.0).or.(t.eq.1)) call CrossCheck
+           if((modulo(t,1).eq.0).or.(t.eq.1)) call CrossCheck
            if((prtl_mean_save_period.gt.0).and.(modulo(t,prtl_mean_save_period).eq.0)) call save_prtl_mean ! mean of prtl related qunatities
            if((prtl_mean_save_period.eq.0).and.(modulo(t,spec_save_period).eq.0)) call save_prtl_mean
          
@@ -51,13 +51,13 @@ contains
 	
 ! !-----------The following subroutine are to crosscheck several things ------
     subroutine CrossCheck
-          call GetTotalNP
+          !call GetTotalNP
           !call CheckPrtlLimit
           !call CheckNegativeA
           !call CheckIonflv
           !call GetTotalIon
-          call GetNegativeQ
-          call GetPositiveQ
+          !call GetNegativeQ
+          !call GetPositiveQ
           !call GetTotalPositiveA
      end subroutine CrossCheck
 !      subroutine CheckPrtlLimit
@@ -123,32 +123,35 @@ contains
 		 integer :: stat
           if((restart_save_period.gt.0).and.(modulo(t,restart_save_period).eq.0)) then
                call h5open_f(err)
-               if(proc.eq.0) print*,'Checkpoint: Saving the current state of the simulation ...'
+               if(proc.eq.0) print*,'Saving the current state of the simulation ...'
                call StartTimer(41)
                call save_fields_restart
                call save_particles_restart
                call save_param_restart
+			   call save_restart_time
                call h5close_f(err)
+			   
+			   call MPI_Barrier(MPI_COMM_WORLD, ierr) 
                
                !now delete older files, if any
-               if(t.gt.restart_save_period) then
-                    write(str1,'(I0)') t-restart_save_period
-                    write(str2,'(I0)') proc
+        
+                write(str1,'(I0)') t-restart_save_period
+                write(str2,'(I0)') proc
 
-					fname=trim(data_folder)//"/restart"//"/fld_"//trim(str2)//"_"//trim(str1)
-					open(unit=1234, iostat=stat, file=fname, status='old')
-					if(stat.eq.0) close(1234, status='delete')
+				fname=trim(data_folder)//"/restart"//"/fld_"//trim(str2)//"_"//trim(str1)
+				open(unit=1234, iostat=stat, file=fname, status='old')
+				if(stat.eq.0) close(1234, status='delete')
 
-				    fname=trim(data_folder)//"/restart"//"/prtl_"//trim(str2)//"_"//trim(str1)
-					open(unit=1234, iostat=stat, file=fname, status='old')
-					if(stat.eq.0) close(1234, status='delete')
-					
-				    fname=trim(data_folder)//"/restart"//"/param_"//trim(str2)//"_"//trim(str1)
-					open(unit=1234, iostat=stat, file=fname, status='old')
-					if(stat.eq.0) close(1234, status='delete')
-              end if
+			    fname=trim(data_folder)//"/restart"//"/prtl_"//trim(str2)//"_"//trim(str1)
+				open(unit=1234, iostat=stat, file=fname, status='old')
+				if(stat.eq.0) close(1234, status='delete')
+				
+			    fname=trim(data_folder)//"/restart"//"/param_"//trim(str2)//"_"//trim(str1)
+				open(unit=1234, iostat=stat, file=fname, status='old')
+				if(stat.eq.0) close(1234, status='delete')
+				
                call StopTimer(41)
-               if(proc.eq.0) print*, 'Data saved in ',real(exec_time(41)),' sec'
+               if(proc.eq.0) print*, 'Restart data saved at Time Step = ',t,'. Data write time: ',real(exec_time(41)),' sec'
           end if
      end subroutine SaveRestartData
 
@@ -174,13 +177,10 @@ contains
           
           call h5open_f(err)
           prtl_arr_size_all=0
-#ifdef CPU		  
+#ifdef CPU	  
           call GetSizeofCollectPrtl
-#endif 
+#endif		  
 #ifdef gpu
-          call GetSizeofCollectPrtl
-#endif 
-#ifdef GPU_EXCLUSIVE
           call CalcPrtlGPU
 #endif 		  
           
@@ -218,13 +218,11 @@ contains
           call save_particles_int_arr_collective(9) 
           call save_particles_real_arr_collective(10) 
           if(save_prtl_local_fld) then
-#ifdef CPU			  
+
+#ifdef CPU		  
                call CalcPrtlLocalEMField
-#endif
+#endif			   
 #ifdef gpu
-               call CalcPrtlLocalEMField
-#endif
-#ifdef GPU_EXCLUSIVE
                call CalcPrtlLocalFieldGPU
 #endif			   
                call save_particles_real_arr_collective(11)
@@ -239,11 +237,8 @@ contains
 			   call SyncCurrentEdges
                call CalcPrtlLocalCurr
 #endif 
-#ifdef gpu 
-			   call SyncCurrentEdges
-			   call CalcPrtlLocalCurr
-#endif 
-#ifdef GPU_EXCLUSIVE
+
+#ifdef gpu
 			   call SyncCurrentEdgesGPU_Exclusive
 			   call CalcPrtlLocalCurrGPU
 #endif			   
@@ -266,24 +261,21 @@ contains
 #ifdef CPU          
           call CollectPrtl(vid)
 #endif
-#ifdef gpu 
-          call CollectPrtl(vid)
-#endif	
-#ifdef GPU_EXCLUSIVE
+#ifdef gpu
           call CollectPrtlGPU(vid)
 #endif	  
           if(vid.eq.1) pdata_real=pdata_real+xborders(procxind(proc))-3
           if(vid.eq.2) pdata_real=pdata_real+yborders(procyind(proc))-3
 #ifndef twoD
-           if(vid.eq.3) pdata_real=pdata_real+zborders(proczind(proc))-3
+          if(vid.eq.3) pdata_real=pdata_real+zborders(proczind(proc))-3
 #endif     
           local_data_dim(1)=prtl_arr_size_all(proc)
-           call h5dcreate_f(fid,pvnames(vid), H5T_NATIVE_REAL, dspace_id, dset_id,err)          
-         call h5dget_space_f(dset_id, dspace_this, err)
+          call h5dcreate_f(fid,pvnames(vid), H5T_NATIVE_REAL, dspace_id, dset_id,err)          
+          call h5dget_space_f(dset_id, dspace_this, err)
           call h5sselect_hyperslab_f(dspace_this,H5S_SELECT_SET_F,offset1,local_data_dim,err)
           call h5pcreate_f(H5P_DATASET_XFER_F, plist, err) 
-          call h5pset_dxpl_mpio_f(plist, H5FD_MPIO_COLLECTIVE_F, err)          
-          call h5dwrite_f(dset_id, H5T_NATIVE_REAL,pdata_real, data_dim1, err, file_space_id = dspace_this, mem_space_id = memspace,xfer_prp = plist)     
+          call h5pset_dxpl_mpio_f(plist, H5FD_MPIO_COLLECTIVE_F, err)
+          call h5dwrite_f(dset_id, H5T_NATIVE_REAL,pdata_real, data_dim1, err, file_space_id = dspace_this, mem_space_id = memspace,xfer_prp = plist)  
           call h5pclose_f(plist, err)
           call h5sclose_f(dspace_this,err)
           call h5dclose_f(dset_id,err)
@@ -294,11 +286,8 @@ contains
           INTEGER(HID_T) :: dspace_this
 #ifdef CPU          
         call CollectPrtl(vid)
-#endif
-#ifdef gpu 
-        call CollectPrtl(vid)
 #endif	
-#ifdef GPU_EXCLUSIVE
+#ifdef gpu
         call CollectPrtlGPU(vid)
 #endif
           local_data_dim(1)=prtl_arr_size_all(proc)
@@ -327,11 +316,11 @@ contains
           fdatazi=zi
           fdatazf=zi+fsave_ratio*int((zf-zi)/fsave_ratio)
           fsave_ratio=res
-          binlen=real(fsave_ratio)/2
-#ifdef GPU_EXCLUSIVE
+          binlen=real(fsave_ratio)/2.0_psn
+#ifdef gpu
           call InitSaveDataGPU(fdataxi,fdatayi,fdatazi,xborders(procxind(proc)),yborders(procyind(proc)),zborders(proczind(proc))) 
-#endif		  
-                                                 
+#endif
+                                                   
          write(fname,'(I0)') t
           fname=trim(data_folder)//"/fld"//ext//"_"//fname
           
@@ -368,17 +357,17 @@ contains
         call h5screate_simple_f(rank, data_dim3, dspace_id, err)
         
 		!Set the chunk-size for HDF5 files, an optimial chunk size on a specific machine can differ
-#ifdef twoD
-        chunk_dim3(1)=min(512,nx/fsave_ratio+1)
-        chunk_dim3(2)=min(2048,ny/fsave_ratio+1)
-        chunk_dim3(3)=1
-#else
-        chunk_dim3(1)=min(128,nx/fsave_ratio+1)
-        chunk_dim3(2)=min(128,ny/fsave_ratio+1)
-        chunk_dim3(3)=min(128,nz/fsave_ratio+1)	
-#endif
+! #ifdef twoD
+!         chunk_dim3(1)=(xf-xi)/fsave_ratio+1!min(512,nx/fsave_ratio+1)
+!         chunk_dim3(2)=(yf-yi)/fsave_ratio+1!min(2048,ny/fsave_ratio+1)
+!         chunk_dim3(3)=1
+! #else
+!         chunk_dim3(1)=min(128,nx/fsave_ratio+1)
+!         chunk_dim3(2)=min(128,ny/fsave_ratio+1)
+!         chunk_dim3(3)=min(128,nz/fsave_ratio+1)
+! #endif
 		
-		  
+
           if(fldid.eq.0.or.fldid.eq.1) then      
               call save_fields_arr_collective(Ex,'Ex',1)
               call save_fields_arr_collective(Ey,'Ey',3)
@@ -395,7 +384,8 @@ contains
                 call save_fields_arr_collective(Jx,'Jx',13)
                 call save_fields_arr_collective(Jy,'Jy',13)
                 call save_fields_arr_collective(Jz,'Jz',13)
-        end if
+         end if
+		
 
           if((fldid.eq.0.and.save_density).or.fldid.eq.3) call SaveDensityFldAll_collective
 
@@ -414,11 +404,11 @@ contains
           
 
           call SaveFldDataLimit !to save the limit of the data and fsave_ratio
-          
+    
           call h5sclose_f(dspace_id, err)
           call h5sclose_f(memspace, err)
           call h5fclose_f(fid,err)
-          call h5close_f(err)
+          call h5close_f(err) 
           deallocate(fdata) ! fdata is allocated in GetSizeofCollectFld, at the begining of the fields data writing operation               
      end subroutine save_field_collective
      
@@ -429,24 +419,26 @@ contains
           integer :: avgid
           INTEGER(HSIZE_T), dimension(3) :: local_data_dim
           INTEGER(HID_T) :: dspace_this
-          call CollectFld(arr,avgid)     
+          
+		  call CollectFld(arr,avgid)     
           local_data_dim(1)=fdatax
           local_data_dim(2)=fdatay
           local_data_dim(3)=fdataz
-		  	  	  
+		  	  
+!! chunked data-set		  
+! 		  call h5pcreate_f(H5P_DATASET_CREATE_F, plist, err)
+! 	      call h5pset_chunk_f(plist, rank, chunk_dim3, err)
+!           call h5dcreate_f(fid,vname, H5T_NATIVE_REAL, dspace_id, dset_id,err,plist)
+! 		  call h5pclose_f(plist, err)    
 		  
-		  call h5pcreate_f(H5P_DATASET_CREATE_F, plist, err)
-	      call h5pset_chunk_f(plist, rank, chunk_dim3, err)
-          call h5dcreate_f(fid,vname, H5T_NATIVE_REAL, dspace_id, dset_id,err,plist)
-		  call h5pclose_f(plist, err)    
-		  
-          !call h5dcreate_f(fid,vname, H5T_NATIVE_REAL, dspace_id, dset_id,err)        
-          call h5dget_space_f(dset_id, dspace_this, err)
+          call h5dcreate_f(fid, vname, H5T_NATIVE_REAL, dspace_id, dset_id,err) ! no chunk    
+          
+		  call h5dget_space_f(dset_id, dspace_this, err)
           call h5sselect_hyperslab_f(dspace_this,H5S_SELECT_SET_F,offset3,local_data_dim,err)
           call h5pcreate_f(H5P_DATASET_XFER_F, plist, err) 
           call h5pset_dxpl_mpio_f(plist, H5FD_MPIO_COLLECTIVE_F, err)          
           call h5dwrite_f(dset_id, H5T_NATIVE_REAL,fdata, data_dim3, err, file_space_id = dspace_this, mem_space_id = memspace, xfer_prp = plist)     
-          call h5pclose_f(plist, err)
+		  call h5pclose_f(plist, err)
           call h5sclose_f(dspace_this,err)
           call h5dclose_f(dset_id,err)
           
@@ -461,11 +453,7 @@ contains
             if(FlvrType(i).eq.0) call CalcPrtlChargeFlux(i)
 			if(FlvrType(i).eq.-1) call CalcTestPrtlChargeFlux(i)
 #endif 
-#ifdef gpu 
-			if(FlvrType(i).eq.0) call CalcPrtlChargeFlux(i)
-			if(FlvrType(i).eq.-1) call CalcTestPrtlChargeFlux(i)
-#endif 
-#ifdef GPU_EXCLUSIVE
+#ifdef gpu
 			if(FlvrType(i).eq.0) call CalcPrtlChargeFluxGPU(i)
 			if(FlvrType(i).eq.-1) call CalcTestPrtlChargeFluxGPU(i)
 #endif 			
@@ -527,11 +515,7 @@ contains
             if(FlvrType(i).eq.0) call CalcPrtlDensity(i) ! calculate "charge" density
             if(FlvrType(i).eq.-1) call CalcTestPrtlDensity(i) 
 #endif 
-#ifdef gpu 
-            if(FlvrType(i).eq.0) call CalcPrtlDensity(i) ! calculate "charge" density
-            if(FlvrType(i).eq.-1) call CalcTestPrtlDensity(i) 
-#endif 
-#ifdef GPU_EXCLUSIVE 
+#ifdef gpu
             if(FlvrType(i).eq.0) call CalcPrtlDensityGPU(i) ! calculate "charge" density
             if(FlvrType(i).eq.-1) call CalcTestPrtlDensityGPU(i) 
 #endif 			
@@ -659,22 +643,22 @@ end subroutine save_spec_master_all_prtl
           
            if(proc.eq.0) then
               rank=3
-                   data_dim3(1)=Nflvr
-                data_dim3(2)=Gamma_spec_binlen
-                data_dim3(3)=1
+              data_dim3(1)=Nflvr
+              data_dim3(2)=Gamma_spec_binlen
+              data_dim3(3)=1
               call h5screate_simple_f(rank,data_dim3,dspace_id,err)
               call h5dcreate_f(fid,'gspec',H5T_NATIVE_DOUBLE,dspace_id,dset_id,err)
               call h5dwrite_f(dset_id,H5T_NATIVE_DOUBLE,spec_gamma,data_dim3,err)
-                   call h5dclose_f(dset_id,err)
-                 call h5sclose_f(dspace_id,err)
+              call h5dclose_f(dset_id,err)
+              call h5sclose_f(dspace_id,err)
                  
               rank=1
-                   data_dim1(1)=Gamma_spec_binlen
+              data_dim1(1)=Gamma_spec_binlen
               call h5screate_simple_f(rank,data_dim1,dspace_id,err)
               call h5dcreate_f(fid,'gbin',H5T_NATIVE_REAL,dspace_id,dset_id,err)
               call h5dwrite_f(dset_id,H5T_NATIVE_REAL,Gamma_spec_bin,data_dim1,err)
-                   call h5dclose_f(dset_id,err)
-                 call h5sclose_f(dspace_id,err)
+              call h5dclose_f(dset_id,err)
+              call h5sclose_f(dspace_id,err)
          end if
 
      end subroutine save_Gamma_spec_master 
@@ -693,16 +677,16 @@ end subroutine save_spec_master_all_prtl
               call h5screate_simple_f(rank,data_dim3,dspace_id,err)
               call h5dcreate_f(fid,'vspec',H5T_NATIVE_DOUBLE,dspace_id,dset_id,err)
               call h5dwrite_f(dset_id,H5T_NATIVE_DOUBLE,spec_speed,data_dim3,err)
-                   call h5dclose_f(dset_id,err)
-                 call h5sclose_f(dspace_id,err)
+              call h5dclose_f(dset_id,err)
+              call h5sclose_f(dspace_id,err)
                  
               rank=1
-                   data_dim1(1)=Speed_spec_binlen
+              data_dim1(1)=Speed_spec_binlen
               call h5screate_simple_f(rank,data_dim1,dspace_id,err)
               call h5dcreate_f(fid,'vbin',H5T_NATIVE_REAL,dspace_id,dset_id,err)
               call h5dwrite_f(dset_id,H5T_NATIVE_REAL,Speed_spec_bin,data_dim1,err)
-                   call h5dclose_f(dset_id,err)
-                 call h5sclose_f(dspace_id,err)
+              call h5dclose_f(dset_id,err)
+              call h5sclose_f(dspace_id,err)
          end if
 
      end subroutine save_Speed_spec_master 
@@ -1001,7 +985,7 @@ subroutine save_particles_restart
      write(str2,'(I0)') proc
      fname=trim(data_folder)//"/restart"//"/prtl_"//trim(str2)//"_"//trim(str1)
      rank=1
-     data_dim1(1)=prtl_arr_size
+     data_dim1(1)=used_prtl_arr_size
      select case(psn)
      case(kind(1.0d0))
          call h5tcopy_f(H5T_NATIVE_DOUBLE,h5psn,err)
@@ -1013,77 +997,43 @@ subroutine save_particles_restart
 
      call h5screate_simple_f(rank,data_dim1,dspace_id,err)
      call h5dcreate_f(fid,'qp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,qp,data_dim1,err)
+     call h5dwrite_f(dset_id,h5psn,qp(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
      call h5dcreate_f(fid,'flvp',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,flvp,data_dim1,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,flvp(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
      call h5dcreate_f(fid,'tagp',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,tagp,data_dim1,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,tagp(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
 	 call h5dcreate_f(fid,'xp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,xp,data_dim1,err)
+     call h5dwrite_f(dset_id,h5psn,xp(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
      call h5dcreate_f(fid,'yp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,yp,data_dim1,err)
+     call h5dwrite_f(dset_id,h5psn,yp(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
      call h5dcreate_f(fid,'zp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,zp,data_dim1,err)
+     call h5dwrite_f(dset_id,h5psn,zp(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
      call h5dcreate_f(fid,'up',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,up,data_dim1,err)
+     call h5dwrite_f(dset_id,h5psn,up(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
      call h5dcreate_f(fid,'vp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,vp,data_dim1,err)
+     call h5dwrite_f(dset_id,h5psn,vp(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
      call h5dcreate_f(fid,'wp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,wp,data_dim1,err)
+     call h5dwrite_f(dset_id,h5psn,wp(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
      call h5dcreate_f(fid,'var1p',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,var1p,data_dim1,err)
+     call h5dwrite_f(dset_id,h5psn,var1p(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
-     call h5sclose_f(dspace_id,err)
-	 	 
-     data_dim1(1)=prtl_arr_size
-     call h5screate_simple_f(rank,data_dim1,dspace_id,err)
-     call h5dcreate_f(fid,'qtp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,qtp,data_dim1,err)
-     call h5dclose_f(dset_id,err)
-     call h5dcreate_f(fid,'flvtp',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,flvtp,data_dim1,err)
-     call h5dclose_f(dset_id,err)
-     call h5dcreate_f(fid,'tagtp',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,tagtp,data_dim1,err)
-     call h5dclose_f(dset_id,err)
-	 call h5dcreate_f(fid,'xtp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,xtp,data_dim1,err)
-     call h5dclose_f(dset_id,err)
-     call h5dcreate_f(fid,'ytp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,ytp,data_dim1,err)
-     call h5dclose_f(dset_id,err)
-     call h5dcreate_f(fid,'ztp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,ztp,data_dim1,err)
-     call h5dclose_f(dset_id,err)
-     call h5dcreate_f(fid,'utp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,utp,data_dim1,err)
-     call h5dclose_f(dset_id,err)
-     call h5dcreate_f(fid,'vtp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,vtp,data_dim1,err)
-     call h5dclose_f(dset_id,err)
-     call h5dcreate_f(fid,'wtp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,wtp,data_dim1,err)
-     call h5dclose_f(dset_id,err)
-     call h5dcreate_f(fid,'var1tp',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,var1tp,data_dim1,err)
-     call h5dclose_f(dset_id,err)
-     call h5sclose_f(dspace_id,err)
-	 
+     
+	 call h5sclose_f(dspace_id,err)	 
      call h5fclose_f(fid,err)
 end subroutine save_particles_restart
 
 subroutine save_param_restart
      INTEGER(HID_T) :: h5psn
-	 integer :: size1
+	 integer :: size1, nSubDomainsZThis
 	 write(str1,'(I0)') t
      write(str2,'(I0)') proc
      fname=trim(data_folder)//"/restart"//"/param_"//trim(str2)//"_"//trim(str1)
@@ -1106,7 +1056,7 @@ subroutine save_param_restart
      call HDF5writeINT(fid,dspace_id,'Nflvr',Nflvr)
      call HDF5writeINT(fid,dspace_id,'nSubDomainsX',nSubDomainsX)
      call HDF5writeINT(fid,dspace_id,'nSubDomainsY',nSubDomainsY)
-     call HDF5writeINT(fid,dspace_id,'nSubDomainsZ',nSubDomainsY)
+     call HDF5writeINT(fid,dspace_id,'nSubDomainsZ',nSubDomainsZ)
      call HDF5writeINT(fid,dspace_id,'fdataxi_box',fdataxi_box)
      call HDF5writeINT(fid,dspace_id,'fdataxf_box',fdataxf_box)
      call HDF5writeINT(fid,dspace_id,'fdatayi_box',fdatayi_box)
@@ -1142,8 +1092,8 @@ subroutine save_param_restart
      call h5dcreate_f(fid,'FlvrType',h5psn,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,h5psn,FlvrType,data_dim1,err)
      call h5dclose_f(dset_id,err) 
-     call h5dcreate_f(fid,'FlvrSplitPrtl',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,FlvrSplitPrtl,data_dim1,err)
+     call h5dcreate_f(fid,'FlvrSpare',h5psn,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,h5psn,FlvrSpare,data_dim1,err)
      call h5dclose_f(dset_id,err) 
      call h5dcreate_f(fid,'TagCounter',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,TagCounter,data_dim1,err)
@@ -1156,19 +1106,30 @@ subroutine save_param_restart
      rank=1
      data_dim1(1)=nSubDomainsX+1
      call h5screate_simple_f(rank,data_dim1,dspace_id,err)
-     call HDF5writeArrINT(fid,dspace_id,nSubDomainsX+1,'xborders',xborders)
+     call h5dcreate_f(fid,'xborders',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,xborders(0:nSubDomainsX),data_dim1,err)
+     call h5dclose_f(dset_id,err) 
      call h5sclose_f(dspace_id,err)
 
      rank=1
      data_dim1(1)=nSubDomainsY+1
      call h5screate_simple_f(rank,data_dim1,dspace_id,err)
-     call HDF5writeArrINT(fid,dspace_id,nSubDomainsY+1,'yborders',yborders)
+     call h5dcreate_f(fid,'yborders',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,yborders(0:nSubDomainsY),data_dim1,err)
+     call h5dclose_f(dset_id,err) 
      call h5sclose_f(dspace_id,err)
 
      rank=1
-     data_dim1(1)=size(zborders)
+	 nSubDomainsZThis=nSubDomainsZ
+#ifdef twoD
+     nSubDomainsZThis=1
+#endif		 
+     data_dim1(1)=nSubDomainsZThis+1
+ 
      call h5screate_simple_f(rank,data_dim1,dspace_id,err)
-     call HDF5writeArrINT(fid,dspace_id,nSubDomainsY+1,'zborders',yborders)
+     call h5dcreate_f(fid,'zborders',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,zborders(0:nSubDomainsZThis),data_dim1,err)
+     call h5dclose_f(dset_id,err) 
      call h5sclose_f(dspace_id,err)
 
      rank=1
@@ -1179,27 +1140,48 @@ subroutine save_param_restart
 #endif
      data_dim1(1)=size1
      call h5screate_simple_f(rank,data_dim1,dspace_id,err)
-     call HDF5writeArrINT(fid,dspace_id,size1,'procxind',procxind)
-     call HDF5writeArrINT(fid,dspace_id,size1,'procyind',procyind)
-     call HDF5writeArrINT(fid,dspace_id,size1,'proczind',proczind)
+	 call h5dcreate_f(fid,'procxind',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+	 call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,procxind(0:size1-1),data_dim1,err)
+     call h5dclose_f(dset_id,err) 
+	 call h5dcreate_f(fid,'procyind',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+	 call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,procyind(0:size1-1),data_dim1,err)
+     call h5dclose_f(dset_id,err)
+	 call h5dcreate_f(fid,'proczind',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+	 call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,proczind(0:size1-1),data_dim1,err)
+     call h5dclose_f(dset_id,err)
      call h5sclose_f(dspace_id,err)
 
      rank=3
 #ifdef twoD
-  size1=1
+     size1=1
 #else
-  size1=nSubDomainsZ
+     size1=nSubDomainsZ
 #endif
      data_dim3(1)=nSubDomainsX
      data_dim3(2)=nSubDomainsY
      data_dim3(3)=size1
      call h5screate_simple_f(rank,data_dim3,dspace_id,err)
-     call HDF5writeINT3(fid,dspace_id,nSubDomainsX,nSubDomainsY,size1,'proc_grid',proc_grid)
+	 call h5dcreate_f(fid,'proc_grid',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+	 call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,proc_grid(0:nSubDomainsX-1,0:nSubDomainsY-1,0:size1-1),data_dim3,err)
+     call h5dclose_f(dset_id,err)
      call h5sclose_f(dspace_id,err)   
      
      call h5fclose_f(fid,err)
                
 end subroutine save_param_restart
+
+subroutine save_restart_time
+	if(proc.ne.0) return
+    fname=trim(data_folder)//"/restart"//"/TimeStep"
+    rank=1
+    data_dim1(1)=1
+    call h5fcreate_f(fname,H5F_ACC_TRUNC_F,fid, err)
+    call h5screate_simple_f(rank,data_dim1,dspace_id,err)     
+
+    call HDF5writeINT(fid,dspace_id,'restart_time',t)
+    call h5sclose_f(dspace_id,err)
+	call h5fclose_f(fid,err)	
+end subroutine save_restart_time
 
 !============================================End of restart data save subroutines ====================================================
 

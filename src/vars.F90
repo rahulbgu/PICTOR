@@ -7,6 +7,7 @@ module vars
      implicit none
      
      integer, parameter :: dbpsn=kind(1.0d0)
+	 logical            :: restart=.false. !is set to .true. at the begining if a saved restart data is found
      integer :: mx,my,mz
      
      real(psn),dimension(:,:,:), allocatable :: Ex,Ey,Ez,Bx,By,Bz
@@ -16,6 +17,7 @@ module vars
      !----------------------------------------------------
      ! Short Arrays used to process ordered particles in a vectorized way
      !----------------------------------------------------
+	 integer, parameter :: VecBlockSize=32
 	 integer :: ShortFldArrSizeY,ShortFldArrSizeZ
 	 !real(psn), dimension(:,:), allocatable ::VecJ, VecEM! VecEx,VecEy,VecEz,VecBx,VecBy,VecBz,
 	 real(psn), dimension(:,:), allocatable :: VecEx,VecEy,VecEz,VecBx,VecBy,VecBz
@@ -55,9 +57,10 @@ module vars
      !some parameters
      real(psn) :: qmi,qme,qe,qi,ompe,masse,massi
      real(psn), dimension(:),allocatable :: flvrqm
+	 real(psn), dimension(:),allocatable :: FlvrCharge
      integer  , dimension(:),allocatable :: FlvrSaveFldData
      integer  , dimension(:),allocatable :: FlvrType! By default, 0: simulation particle 1: Test Particle
-     integer  , dimension(:),allocatable :: FlvrSplitPrtl 
+     integer  , dimension(:),allocatable :: FlvrSpare 
      integer        :: Nflvr ! Number of plasma species 
      integer        :: Nelc  !Initial number of electrons, defined in initialise.F90  
 #ifdef longX
@@ -100,25 +103,39 @@ module vars
      integer :: fdatax,fdatay,fdataz
      real(psn), dimension(4) :: energy
      integer :: fdataxi_box,fdataxf_box,fdatayi_box,fdatayf_box,fdatazi_box,fdatazf_box !limits for saving fld data
+	 real(psn) :: binlen 
+     integer :: fdataxi,fdatayi,fdatazi
+     integer :: fdataxf,fdatayf,fdatazf
      !----------------------------------------------------
      !indices and variables
      !----------------------------------------------------
      integer :: t !counter for time steps  
      integer :: tstart ! starting time step number  
+	 integer :: restart_time! time step to load the restart data
      !integer :: i,j,k,l,m,n
      integer :: prtl_arr_size! size of particle array
      integer :: used_prtl_arr_size !maximum index of an active particle in the particle array
-	 integer :: prtl_random_insert_index ! index to insert an random particle that is out of spatial order 
-	 integer, dimension(:,:), allocatable :: SortedPrtlCountYZ ! it stores number of particles in columns paralles to x-axis  
+	 integer :: prtl_random_insert_index ! index to insert a random particle that is out of spatial order 
      integer :: np ! total number of active test particles on this processor
      integer :: test_prtl_arr_size! size of test particle array
      integer :: used_test_prtl_arr_size !maximum index of an active test particle in the particle array
 	 integer :: test_prtl_random_insert_index ! index to insert an random test particle that is out of spatial order 
      integer :: ntp ! total number of active test particles on this processor  
+ 	 integer :: initialised_prtl_ind=0 !used in initialise routines to keep track of already used slots
+	 integer :: prtl_arr_size0=10000000 !max size of the prtl arrays at the very first memory allocation, size is dynamically adjusted later on
+	 integer :: outp_arr_block_size=100000 
      !------------------------------------------------------
-    !varaibles to set the boundaries
+     !varaibles to set the boundaries
      !------------------------------------------------------- 
      real(psn) :: xmin,xmax,ymax,ymin,zmax,zmin,xlen,ylen,zlen ! physical boundaries of particles at this processor 
+     !------------------------------------------------------
+     !varaibles to set boundary conditions for field and particles
+     !------------------------------------------------------- 
+	 logical :: inflowBC = .false.
+     real(psn) :: BC_Xmin_Prtl, BC_Xmax_Prtl, BC_Ymin_Prtl, BC_Ymax_Prtl, BC_Zmin_Prtl, BC_Zmax_Prtl
+	 real(psn)   :: BC_Xmin_Fld, BC_Xmax_Fld, BC_Ymin_Fld, BC_Ymax_Fld, BC_Zmin_Fld, BC_Zmax_Fld
+	 character (len=4) :: BC_Xmin_Fld_Type, BC_Xmax_Fld_Type, BC_Ymin_Fld_Type, BC_Ymax_Fld_Type, BC_Zmin_Fld_Type, BC_Zmax_Fld_Type
+	 character (len=4) :: BC_Xmin_Prtl_Type, BC_Xmax_Prtl_Type, BC_Ymin_Prtl_Type, BC_Ymax_Prtl_Type, BC_Zmin_Prtl_Type, BC_Zmax_Prtl_Type
      !----------------------------------------------------------
      !variable used for communication 
      !----------------------------------------------------------
@@ -181,16 +198,17 @@ module vars
      integer ::  hist_ind=1
      !-------------------------------------------------------------------
      ! to keep track of physical domain on each proc
-     !-------------------------------------------------------------------
+     !-------------------------------------------------------------------	 
      integer , dimension (0:nSubDomainsX) :: xborders,xborders_new
      integer , dimension (0:nSubDomainsY) :: yborders,yborders_new
 #ifdef twoD     
-    integer , dimension (0:1)      :: zborders
+     integer , dimension (0:1)      :: zborders
      integer , dimension (0:nSubDomainsX*nSubDomainsY-1) ::procxind,procyind,proczind
 #else 
-    integer , dimension (0:nSubDomainsZ) :: zborders
-    integer , dimension (0:nSubDomainsX*nSubDomainsY*nSubDomainsZ-1) ::procxind,procyind,proczind 
-#endif     
+     integer , dimension (0:nSubDomainsZ) :: zborders
+     integer , dimension (0:nSubDomainsX*nSubDomainsY*nSubDomainsZ-1) ::procxind,procyind,proczind 
+#endif   
+ 
      !-------------------------------------------------------------------
      !varaibles used for the purpose of load balancing 
      !-------------------------------------------------------------------
@@ -207,5 +225,16 @@ module vars
      !OpenMP related varaibles 
      !-------------------------------------------------------------------
 	 integer :: Nthreads,ThreadID
+	 
+     !-------------------------------------------------------------------
+     !Curved BC related varaibles 
+     !-------------------------------------------------------------------
+	 logical:: curved_bc=.false.! becomes .true. if a curved (in the Cart. grid) boundary condition is included   
+	 real(psn), dimension(:,:,:), allocatable :: e_lx, e_ly , e_lz, b_arx, b_ary, b_arz ! used in conformal FDTD schemes 
+	 real(psn), dimension(:,:), allocatable :: usc_wtr_bx, usc_wtr_by, usc_wtr_bz ! wts used in the USC method, r (c)= row (column) of V matrix
+	 real(psn), dimension(:,:), allocatable :: usc_wtc_bx, usc_wtc_by, usc_wtc_bz
+	 integer, dimension(:,:,:), allocatable :: usc_fdtd_bx, usc_fdtd_by, usc_fdtd_bz ! 0: regular fdtd; positive integer, use the USC method, integer -> index in the wt. list 
+	 real(psn), dimension(:,:,:), allocatable :: usc_norm_bx, usc_norm_by, usc_norm_bz ! matrix to store normalisations for the wts
+	 real(psn), dimension(:,:,:), allocatable :: usc_db1, usc_db2
   
 end module vars

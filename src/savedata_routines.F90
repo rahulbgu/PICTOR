@@ -1,12 +1,15 @@
 module savedata_routines
      use parameters
      use vars
+#ifdef cyl
+     use cyl_savedata_routines  
+#endif 	 
+#ifdef gpu
+     use savedata_gpu
+#endif
      use interpolation, only : InterpEMfield
      implicit none 
      integer :: istart,jstart,kstart,iend,jend,kend
-     integer :: fdataxi,fdatayi,fdatazi
-     integer :: fdataxf,fdatayf,fdatazf
-     real(psn) :: binlen 
      integer :: ldep_edge_send,rdep_edge_send,ldep_edge_recv,rdep_edge_recv
      integer :: ldep_proc_send,rdep_proc_send,ldep_procxind_recv,rdep_procxind_recv     
      
@@ -190,6 +193,14 @@ contains
                else 
                      jend=min(my-3,jend)
                end if
+#ifdef cyl
+               if(inc_axis) then
+				   if(procxind(proc).eq.0) then
+					   jstart=3
+					   jend=my-2 
+				   end if 
+			   end if  
+#endif 			   
                fdatay=max(0,floor2(jend-jstart,fsave_ratio)/fsave_ratio+1)               
           else 
                fdatay=0
@@ -223,7 +234,7 @@ contains
           integer, intent(in) :: fvid
           real(psn),dimension(mx,my,mz), intent(in):: Fin !field to be saved
           integer :: i,j,k,i1,j1,k1
-
+		  
           if((fdatax.eq.0).or.(fdatay.eq.0).or.(fdataz.eq.0)) return 
                
           k1=1
@@ -250,24 +261,32 @@ contains
                          case(9)
                            fdata(i1,j1,k1)=real((Fin(i,j,k)+Fin(i-1,j,k)+Fin(i,j,k-1)+Fin(i-1,j,k-1))*0.25_psn) !By
 #else
-                    case(5)
-                      fdata(i1,j1,k1)=real(Fin(i,j,1)) !Ez
-                    case(7)
-                      fdata(i1,j1,k1)=real((Fin(i,j,k)+Fin(i,j-1,k))*0.5_psn) !Bx
-                    case(9)
-                      fdata(i1,j1,k1)=real((Fin(i,j,k)+Fin(i-1,j,k))*0.5_psn) !By
+	                     case(5)
+	                       fdata(i1,j1,k1)=real(Fin(i,j,1)) !Ez
+	                     case(7)
+	                       fdata(i1,j1,k1)=real((Fin(i,j,k)+Fin(i,j-1,k))*0.5_psn) !Bx
+	                     case(9)
+	                       fdata(i1,j1,k1)=real((Fin(i,j,k)+Fin(i-1,j,k))*0.5_psn) !By
 #endif
                          case(11)
                            fdata(i1,j1,k1)=real((Fin(i,j,k)+Fin(i-1,j,k)+Fin(i,j-1,k)+Fin(i-1,j-1,k))*0.25_psn) !Bz
                          case(13)
                            fdata(i1,j1,k1)=real(Fin(i,j,k)) !charge density
-                    end select 
-                    i1=i1+1
+                         end select 
+                         i1=i1+1
                     end do
                     j1=j1+1
                end do          
                k1=k1+1
-          end do 
+          end do
+		  
+#ifdef cyl
+		  if(inc_axis) then
+		     if(procxind(proc).eq.0) then
+				 call CollectFld_cyl(Fin,fvid,kstart,kend)
+		     end if 
+		  end if 
+#endif		   
      end subroutine CollectFld
      integer function ceil2(n1,n2)
           integer :: n1,n2
@@ -303,44 +322,63 @@ contains
 
      subroutine CalcEnergy(energy_this) !Calcualtes the total energy in EM field and particles
           real(psn), dimension(4) :: energy_this
-          integer :: n,i,j,k
-          real(psn) :: elc_energy,ion_energy,gamma,Bfld_energy,Efld_energy 
-             elc_energy=0
-             ion_energy=0
-             Bfld_energy=0
-             Efld_energy=0
-          do n=1,used_prtl_arr_size
-               gamma=sqrt(1+up(n)**2+vp(n)**2+wp(n)**2)     
-#ifdef mulflvr
-               if(flvp(n).eq.1)  ion_energy=ion_energy+(gamma-1)*abs(qp(n))
-               if(flvp(n).eq.2)  elc_energy=elc_energy+(gamma-1)*abs(qp(n))
-#else                     
-               if(qp(n).gt.0)  ion_energy=ion_energy+(gamma-1)*abs(qp(n))
-               if(qp(n).lt.0)  elc_energy=elc_energy+(gamma-1)*abs(qp(n))
-#endif
-          end do
+          real(psn) :: elc_energy,ion_energy,Bfld_energy,Efld_energy 
+          
+		  elc_energy=0; ion_energy=0; Bfld_energy=0; Efld_energy=0
+
+		  call CalcPrtlEnergy(elc_energy,ion_energy)
+		  
           ion_energy=ion_energy*massi*c*c
           elc_energy=elc_energy*masse*c*c
-#ifndef twoD 
-          do k=3,mz-3
-#else
-        do k=1,1
-#endif
-          do j=3,my-3
-               do i=3,mx-3
-                    Bfld_energy=Bfld_energy+(Bx(i,j,k)**2+By(i,j,k)**2+Bz(i,j,k)**2)
-                    Efld_energy=Efld_energy+(Ex(i,j,k)**2+Ey(i,j,k)**2+Ez(i,j,k)**2)
-               end do
-          end do
-         end do
-          Bfld_energy=Bfld_energy*0.5
+#ifdef cyl
+          call CalcFldEnergy_cyl(Bfld_energy,Efld_energy)
+#else 
+          call CalcFldEnergy(Bfld_energy,Efld_energy)
+#endif          
+		  
+          
+		  Bfld_energy=Bfld_energy*0.5
           Efld_energy=Efld_energy*0.5
           energy_this(1)=elc_energy
           energy_this(2)=ion_energy
           energy_this(3)=Bfld_energy
           energy_this(4)=Efld_energy
-          !print*,'Total',prtl_energy+Bfld_energy+Efld_energy
+         
      end subroutine CalcEnergy
+	 
+	 subroutine CalcPrtlEnergy(elc_energy,ion_energy)
+		 integer :: n
+		 real(psn) :: elc_energy, ion_energy, gamma
+#ifdef gpu
+         call CalcPrtlEnergyGPU(elc_energy,ion_energy)
+		 return
+#endif		 
+         do n=1,used_prtl_arr_size
+              gamma=sqrt(1.0_psn+up(n)**2+vp(n)**2+wp(n)**2)     
+              if(flvp(n).eq.1)  ion_energy=ion_energy+(gamma-1.0_psn)*abs(qp(n))
+              if(flvp(n).eq.2)  elc_energy=elc_energy+(gamma-1.0_psn)*abs(qp(n))
+         end do
+	 end subroutine CalcPrtlEnergy
+	 
+	 subroutine CalcFldEnergy(Bfld_energy,Efld_energy)
+		 real(psn) :: Bfld_energy,Efld_energy
+		 integer :: i,j,k
+		 
+#ifndef twoD 
+         do k=3,mz-3
+#else
+         do k=1,1
+#endif
+         do j=3,my-3
+            do i=3,mx-3
+                 Bfld_energy=Bfld_energy+(Bx(i,j,k)**2+By(i,j,k)**2+Bz(i,j,k)**2)
+                 Efld_energy=Efld_energy+(Ex(i,j,k)**2+Ey(i,j,k)**2+Ez(i,j,k)**2)
+            end do
+         end do
+         end do
+	 end subroutine CalcFldEnergy
+	 
+	 
      subroutine CalcDivE ! currently written to calucate divergence of electric field in 2D 
           integer :: i,j,k
           Jx=0 ! Jx must be available to store the divergene data 
@@ -360,6 +398,8 @@ contains
                end do 
           end do 
      end subroutine CalcDivE
+	 
+
      
      
 !-----------------------------------------------------------------------------------------------------------------------
@@ -373,7 +413,8 @@ contains
           Jx=0.0_psn
           do n=1,used_prtl_arr_size
                if(flvp(n).eq.ch) then
-                    call  DownsampleGridIndex(xp(n),yp(n),zp(n),i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp)
+                    !call  GridCellWt(xp(n),yp(n),zp(n),i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp)
+					call  DownsampleGridIndex(xp(n),yp(n),zp(n),i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp)
                     Jx(i  ,j  ,k  )=Jx(i  ,j  ,k  )+ Wx *Wy *Wz*qp(n)
                     Jx(ip ,j  ,k  )=Jx(ip ,j  ,k  )+ Wxp*Wy *Wz*qp(n)
                     Jx(i  ,jp ,k  )=Jx(i  ,jp ,k  )+ Wx *Wyp*Wz*qp(n)
@@ -386,6 +427,7 @@ contains
 #endif
                end if
           end do
+		!call DownSample(Jx)
         call NormaliseFldDensity1
 
      end subroutine CalcPrtlDensity
@@ -791,31 +833,30 @@ contains
           end do
         call NormaliseFldDensity1
      end subroutine CalcTestPrtlEnergySpatial
+	 
+	 
+	 
 
      subroutine DownsampleGridIndex(x,y,z,i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp)
-          real(xpsn), intent(in) :: x
-          real(ypsn), intent(in) :: y
-          real(zpsn), intent(in) :: z 
+          real(psn), intent(in) :: x,y,z
           integer  , intent(out):: i,j,k,ip,jp,kp
           real(psn), intent(out):: Wx,Wy,Wz,Wxp,Wyp,Wzp
-          real(psn)             :: fp
-          
-               !i=fsave_ratio*int((x-3)/fsave_ratio)+3
-               !j=fsave_ratio*int((y-3)/fsave_ratio)+3
-               !i=fsave_ratio*int((x-3+xborders(procxind(proc))-fdataxi)/fsave_ratio)+fdataxi-xborders(procxind(proc))+3
-               !j=fsave_ratio*int((y-3+yborders(procyind(proc))-fdatayi)/fsave_ratio)+fdatayi-yborders(procyind(proc))+3
+          real                  :: fp
+
                i=floor2real(real(x-3+xborders(procxind(proc))-fdataxi),fsave_ratio)+fdataxi-xborders(procxind(proc))+3
                j=floor2real(real(y-3+yborders(procyind(proc))-fdatayi),fsave_ratio)+fdatayi-yborders(procyind(proc))+3
-               
+
                ip=i+fsave_ratio
                jp=j+fsave_ratio
+			   
+			   
                fp=x-i-binlen+0.5
                Wxp=max(min(fp,1.0),0.0)
                Wx =max(min(1-fp,1.0),0.0)
                fp =y-j-binlen+0.5
                Wyp=max(min(fp,1.0),0.0)
                Wy =max(min(1-fp,1.0),0.0)
-               
+
                i=max(1,i)
                j=max(1,j)
                ip=min(mx,ip)
@@ -826,15 +867,93 @@ contains
                kp=k+fsave_ratio
                fp =z-k-binlen+0.5
                Wzp=max(min(fp,1.0),0.0)
-               Wz =max(min(1-fp,1.0),0.0)     
+               Wz =max(min(1.0-fp,1.0),0.0)
                k=max(1,k)
                kp=min(mz,kp)
 #else
                Wz=1
                k=1
 #endif
+#ifdef cyl
+               call AxisPrtlWt(x,Wx,Wxp)	 
+#endif
      end subroutine DownsampleGridIndex
+	 
+	 
+     subroutine GridCellWt(x,y,z,i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp)
+          real(psn), intent(in) :: x,y,z
+          integer  , intent(out):: i,j,k,ip,jp,kp
+          real(psn), intent(out):: Wx,Wy,Wz,Wxp,Wyp,Wzp
+		  i=x
+		  j=y
+		  ip=i+1
+		  jp=j+1
+		  Wxp=x-i
+		  Wx=1.0-Wxp
+		  Wyp=y-j
+		  Wy=1.0-Wyp
+#ifdef twoD
+          Wz=1
+          k=1
+#else 
+          k=z
+		  kp=k+1
+		  Wzp=z-k
+		  Wz=1.0-Wzp
+#endif 		  		  
+	 end subroutine GridCellWt
+	 
+	 subroutine DownSample(Fld)
+		 real(psn), dimension(mx,my,mz) :: Fld
+		 real :: wtx,wty,wtz,h 
+		 integer :: i,j,k,i0,j0,k0,i1,j1,k1
+		 
+#ifdef cyl
+         call FoldInDensityAxis(Fld)
+#endif		 
+		 
+		 i1=istart
+		 j1=jstart
+		 k1=kstart  
+		 if(istart-fsave_ratio.ge.1) i1=istart-fsave_ratio
+		 if(jstart-fsave_ratio.ge.1) j1=jstart-fsave_ratio
+		 if(kstart-fsave_ratio.ge.1) k1=kstart-fsave_ratio
+		 
+		 h=real(fsave_ratio)/2.0
+		 do k0=k1,mz,fsave_ratio
+			 do j0=j1,my,fsave_ratio
+				 do i0=i1,mx,fsave_ratio
+					 
+					 
+#ifdef twoD 
+                     do k=1,1
+#else					 
+					 do k=max(1,k0-fsave_ratio/2),min(mz,k0+fsave_ratio/2)
+#endif 						 
+						 do j=max(1,j0-fsave_ratio/2),min(my,j0+fsave_ratio/2)
+					         do i=max(1,i0-fsave_ratio/2),min(mx,i0+fsave_ratio/2)
+								   wtx=min(i+0.5,i0+h)-max(i-0.5,i0-h)
+								   wty=min(j+0.5,j0+h)-max(j-0.5,j0-h)
+#ifndef twoD								   
+								   wtz=min(k+0.5,k0+h)-max(k-0.5,k0-h)
+#else 
+                                   wtz=1.0
+#endif 								   
+                                   if((i.ne.i0).or.(j.ne.j0).or.(k.ne.k0))  then
+								        Fld(i0,j0,k0)=Fld(i0,j0,k0) + wtx*wty*wtz*Fld(i,j,k)
+								   end if
+							 end do
+						 end do 
+					 end do 
+					  
+				
+				 end do
+			 end do 
+		 end do 
+	 end subroutine DownSample
      
+
+#ifndef cyl	 
 !subroutines to nomalised the qunaitties to per unit cell      
      subroutine NormaliseFldDensity3 
 #ifdef twoD          
@@ -860,9 +979,12 @@ contains
 #ifdef twoD
                Jx=Jx/(fsave_ratio**2)
 #else
-             Jx=Jx/(fsave_ratio**3)
+               Jx=Jx/(fsave_ratio**3)
 #endif
     end subroutine NormaliseFldDensity1
+
+
+#endif	
 
 
 !-----------------------------------End of downsampled field quantities subroutines ------------- 

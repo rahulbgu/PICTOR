@@ -7,9 +7,9 @@ contains
      recursive subroutine DeletePrtl(n) !free the slot of particle at i if particle is leaving this proc
           integer :: n
                     qp(n)=0.0_psn
-                    xp(n)=xmin+0.5_psn
-                    yp(n)=ymin+0.5_psn
-                    zp(n)=zmin+0.5_psn
+                    xp(n)=xmin+0.8_psn
+                    yp(n)=ymin+0.8_psn
+                    zp(n)=zmin+0.8_psn
                     up(n)=0.0_psn
                     vp(n)=0.0_psn
                     wp(n)=0.0_psn
@@ -30,6 +30,34 @@ contains
                     flvtp(n)=0
 					var1tp(n)=0.0_psn
      end subroutine DeleteTestPrtl 
+	 
+	 subroutine GetUsedPrtlIndex(ind)
+	 	integer :: ind,n 
+	 	ind=0
+	 	do n=1,prtl_arr_size
+	 		if(qp(n).ne.0) ind=n
+	 	end do 
+	 end subroutine GetUsedPrtlIndex
+	 
+ 	subroutine CopyPrtlPos(NewFlvr,SourceFlvr)
+ 		integer :: NewFlvr,SourceFlvr
+ 		real(psn) :: ch
+ 		integer   :: n,off, count
+		
+ 		call GetUsedPrtlIndex(off)
+		count=0
+		do n=initialised_prtl_ind+1,prtl_arr_size ! count no. of particles to be copied
+			if((qp(n).ne.0).and.(flvp(n).eq.SourceFlvr)) count=count+1
+		end do
+		if(off+count.gt.prtl_arr_size) call ReshapePrtlArr(new_size=int(1.1*(off+count)),used_ind=off) !enlarge prtl arr if needed
+		
+ 		do n=initialised_prtl_ind+1,prtl_arr_size
+ 			if((qp(n).ne.0).and.(flvp(n).eq.SourceFlvr)) then 
+ 			   call InsertParticleAt(off+1,xp(n),yp(n),zp(n),0.0_psn,0.0_psn,0.0_psn,FlvrCharge(NewFlvr),0,NewFlvr,0.0_psn)
+ 			   off=off+1
+ 		    end if 
+ 		end do 
+ 	end subroutine CopyPrtlPos
 	 
 	recursive subroutine LoadPrtl(p,size,n,m)
 	 	integer :: size,n,m 
@@ -62,11 +90,19 @@ contains
 	 end subroutine LoadTestPrtl
 	 
      !the following subroutine is called when the main prtl arrays needs to be reallocated
-     subroutine ReshapePrtlArr(new_size)
+     subroutine ReshapePrtlArr(new_size,used_ind)
           integer, intent(IN) :: new_size
-		  integer :: n
+		  integer, optional :: used_ind
+		  integer :: n,used_ind_this
+		  
+		  if(present(used_ind)) then
+			  used_ind_this=used_ind 
+		  else 
+			  used_ind_this=used_prtl_arr_size
+		  end if 
+
           allocate(qp_temp(new_size),xp_temp(new_size),yp_temp(new_size),zp_temp(new_size),up_temp(new_size),vp_temp(new_size),wp_temp(new_size),tagp_temp(new_size),flvp_temp(new_size),var1p_temp(new_size))
-		  do n=1,used_prtl_arr_size
+		  do n=1,used_ind_this
 				    qp_temp(n)=qp(n)
 					xp_temp(n)=xp(n)
 					yp_temp(n)=yp(n)
@@ -91,7 +127,7 @@ contains
 		  call move_alloc(var1p_temp,var1p)		            		            
           prtl_arr_size=new_size
 		  
-		  do n=used_prtl_arr_size+1,prtl_arr_size
+		  do n=used_ind_this+1,prtl_arr_size
 			  qp(n)=0
 			  flvp(n)=0
 		  end do
@@ -189,10 +225,9 @@ contains
 		  real(psn)  :: var1_this
 	      integer    :: a1
 	      integer     :: flv1
-	 	  if(prtl_random_insert_index.gt.prtl_arr_size) call ReshapePrtlArr(int(1.1*prtl_arr_size+100)) ! make sure that the prtl array is large enough
-	 	  call InsertParticleAt(prtl_random_insert_index,x1,y1,z1,u1,v1,w1,q1,a1,flv1,var1_this)	
-		  used_prtl_arr_size=prtl_random_insert_index
-	      prtl_random_insert_index=prtl_random_insert_index+1
+	 	  if(used_prtl_arr_size.ge.prtl_arr_size) call ReshapePrtlArr(int(1.1*prtl_arr_size+100)) ! make sure that the prtl array is large enough
+	 	  call InsertParticleAt(used_prtl_arr_size+1,x1,y1,z1,u1,v1,w1,q1,a1,flv1,var1_this)	
+		  used_prtl_arr_size=used_prtl_arr_size+1
 	 	  np=np+1
 	 end subroutine InsertNewPrtl
 
@@ -203,14 +238,34 @@ contains
 		  real(psn)  :: var1_this
 	      integer    :: a1
 	      integer     :: flv1
-	 	  if(test_prtl_random_insert_index.gt.test_prtl_arr_size) call ReshapeTestPrtlArr(int(1.1*test_prtl_arr_size+100)) !make sure that the prtl array is large enough
-	 	  call InsertTestParticleAt(test_prtl_random_insert_index,x1,y1,z1,u1,v1,w1,q1,a1,flv1,var1_this)	
-		  used_test_prtl_arr_size=test_prtl_random_insert_index
-	      test_prtl_random_insert_index=test_prtl_random_insert_index+1
+	 	  if(used_test_prtl_arr_size.gt.test_prtl_arr_size) call ReshapeTestPrtlArr(int(1.1*test_prtl_arr_size+100)) !make sure that the prtl array is large enough
+	 	  call InsertTestParticleAt(used_test_prtl_arr_size,x1,y1,z1,u1,v1,w1,q1,a1,flv1,var1_this)	
+		  used_test_prtl_arr_size=used_test_prtl_arr_size+1
 	 	  ntp=ntp+1
 	 end subroutine InsertNewTestPrtl
 	 
-     subroutine ReshapeTransferOutArr(arr,curr_size,new_size)
+     subroutine UpdateTransferInSize
+            if(linp_size.lt.(linp_count+lintp_count)) call ReshapeTransferArr(linp,linp_size,int((linp_count+lintp_count)*1.1+100))
+            if(rinp_size.lt.(rinp_count+rintp_count)) call ReshapeTransferArr(rinp,rinp_size,int((rinp_count+rintp_count)*1.1+100))
+            if(tinp_size.lt.(tinp_count+tintp_count)) call ReshapeTransferArr(tinp,tinp_size,int((tinp_count+tintp_count)*1.1+100))
+            if(binp_size.lt.(binp_count+bintp_count)) call ReshapeTransferArr(binp,binp_size,int((binp_count+bintp_count)*1.1+100))
+#ifndef twoD
+            if(uinp_size.lt.(uinp_count+uintp_count)) call ReshapeTransferArr(uinp,uinp_size,int((uinp_count+uintp_count)*1.1+100))
+            if(dinp_size.lt.(dinp_count+dintp_count)) call ReshapeTransferArr(dinp,dinp_size,int((dinp_count+dintp_count)*1.1+100))
+#endif             
+    end subroutine UpdateTransferInSize 
+     subroutine UpdateTransferOutSize
+            if(loutp_size.lt.(lcross+outp_arr_block_size)) call ReshapeTransferOutArr(loutp,loutp_size,loutp_size+2*outp_arr_block_size)
+            if(routp_size.lt.(rcross+outp_arr_block_size)) call ReshapeTransferOutArr(routp,routp_size,routp_size+2*outp_arr_block_size)
+            if(toutp_size.lt.(tcross+outp_arr_block_size)) call ReshapeTransferOutArr(toutp,toutp_size,toutp_size+2*outp_arr_block_size)
+            if(boutp_size.lt.(bcross+outp_arr_block_size)) call ReshapeTransferOutArr(boutp,boutp_size,boutp_size+2*outp_arr_block_size)
+#ifndef twoD
+            if(uoutp_size.lt.(ucross+outp_arr_block_size)) call ReshapeTransferOutArr(uoutp,uoutp_size,uoutp_size+2*outp_arr_block_size)
+            if(doutp_size.lt.(dcross+outp_arr_block_size)) call ReshapeTransferOutArr(doutp,doutp_size,doutp_size+2*outp_arr_block_size)
+#endif             
+    end subroutine UpdateTransferOutSize 
+	 
+	 subroutine ReshapeTransferOutArr(arr,curr_size,new_size)
           integer :: n,curr_size,new_size
           type(particle), dimension(:),allocatable :: arr 
           allocate(ptemp(new_size))
@@ -221,13 +276,13 @@ contains
           call move_alloc(ptemp,arr)
           curr_size=new_size     
      end subroutine ReshapeTransferOutArr
-     subroutine ReshapeTransferInArr(arr,curr_size,new_size)
+     subroutine ReshapeTransferArr(arr,curr_size,new_size)
           integer :: curr_size,new_size
           type(particle),dimension(:),allocatable,intent(inout) :: arr 
           deallocate(arr)
           allocate(arr(new_size))
           curr_size=new_size
-     end subroutine ReshapeTransferInArr
+     end subroutine ReshapeTransferArr
      subroutine ReorderPrtl
           if(modulo(t,prtl_reorder_period).eq.0) then
              call ReorderPrtlArr
@@ -243,12 +298,7 @@ contains
           pcount=0
 		  count=0
 		  
-		  if((size(SortedPrtlCountYZ,1).ne.my).or.(size(SortedPrtlCountYZ,2).ne.mz)) then 
-			  deallocate(SortedPrtlCountYZ)
-			  allocate(SortedPrtlCountYZ(my,mz))
-		  end if 
-		  SortedPrtlCountYZ=0
-          
+      
 		  do n=1,used_prtl_arr_size
                if(qp(n).ne.0) then
                  i=floor(xp(n))
@@ -265,7 +315,6 @@ contains
 		  np_cpu=count
 		  
 		  
-       ! keep in mind that some particles end up right at the boundary 
         offset=1
   	    count=0		  
 #ifdef twoD
@@ -280,7 +329,6 @@ contains
                          offset=offset+pcount_this
                          count=count+pcount_this
                     end do
-					SortedPrtlCountYZ(j,k)=count					
                end do 
           end do
 		            
@@ -293,11 +341,13 @@ contains
           allocate(wp_temp(prtl_arr_size))
           allocate(tagp_temp(prtl_arr_size))
           allocate(flvp_temp(prtl_arr_size))
-          allocate(var1p_temp(prtl_arr_size))		  
+          allocate(var1p_temp(prtl_arr_size))	
+		  
+	  
 
 #ifdef OPEN_MP
 !$OMP PARALLEL DO PRIVATE(n,i,j,k,ind)
-#endif		  
+#endif	  
           do n=1,used_prtl_arr_size
                if(qp(n).ne.0) then
                  i=floor(xp(n))
@@ -442,5 +492,57 @@ subroutine ReorderTestPrtlArr
 		  test_prtl_random_insert_index=ntp_cpu+1
 		  
 end subroutine ReorderTestPrtlArr
+
+
+subroutine InitPrtlArr(size)
+	integer :: size
+	
+    prtl_arr_size = size
+	
+	if(allocated(qp)) deallocate(qp,xp,yp,zp,up,vp,wp,tagp,flvp,var1p)
+	
+	allocate(qp(prtl_arr_size))
+    allocate(xp(prtl_arr_size)) 
+    allocate(yp(prtl_arr_size)) 
+    allocate(zp(prtl_arr_size)) 
+    allocate(up(prtl_arr_size)) 
+    allocate(vp(prtl_arr_size)) 
+    allocate(wp(prtl_arr_size)) 
+    allocate(tagp(prtl_arr_size)) 
+    allocate(flvp(prtl_arr_size))
+    allocate(var1p(prtl_arr_size)) 
+  
+    qp=0
+    used_prtl_arr_size=0
+    prtl_random_insert_index=1
+    np=0 
+end subroutine InitPrtlArr 
+
+
+integer function EstimatePrtlCount(Den,Nuniform)
+	integer :: n, count , Nuniform
+	real(psn), external :: Den
+	real(psn) :: r1,r2,r3,rnd_acpt
+	real(psn) :: xglobal,yglobal,zglobal
+	
+	count = 0
+	
+	do n=1,10000
+		call random_number(r1)
+	    call random_number(r2)
+		call random_number(r3)
+		call random_number(rnd_acpt)
+		
+		xglobal= xborders(procxind(proc)) + r1*(xborders(procxind(proc)+1)-xborders(procxind(proc)))
+		yglobal= yborders(procyind(proc)) + r2*(yborders(procyind(proc)+1)-yborders(procyind(proc)))
+		zglobal= zborders(proczind(proc)) + r3*(zborders(proczind(proc)+1)-zborders(proczind(proc)))
+		
+		if(rnd_acpt.le.Den(xglobal,yglobal,zglobal)) count = count + 1 
+		
+	end do 
+
+    EstimatePrtlCount = int(1.1*Nuniform*(count/10000.0)) + 1000000
+		
+end function EstimatePrtlCount
 
 end module memory 

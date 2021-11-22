@@ -26,6 +26,7 @@ contains
 
 
 subroutine InitPrtlStatVars
+	 if(allocated(spec_speed)) call DeallocatePrtlStatVars
      call InitSpeedSpecBin !defined in savedata_routines
      allocate(SumNprtl(Nflvr),SumQ(Nflvr),SumQxKE(Nflvr))  !used for saving prtl averaged info  
      allocate(SumQxExVx(Nflvr),SumQxEyVy(Nflvr),SumQxEzVz(Nflvr))
@@ -34,6 +35,18 @@ subroutine InitPrtlStatVars
     !allocate(SumQxLR(Nflvr))
      allocate(spec_gamma(Nflvr,0),Gamma_spec_bin(0))
 end subroutine InitPrtlStatVars
+
+subroutine DeallocatePrtlStatVars
+	deallocate(spec_speed,Speed_spec_bin)
+	
+    deallocate(SumNprtl,SumQ,SumQxKE) 
+    deallocate(SumQxExVx,SumQxEyVy,SumQxEzVz)
+    deallocate(SumQxPx2,SumQxPy2,SumQxPz2)
+    deallocate(Speed_SumQxExVx,Speed_SumQxEyVy,Speed_SumQxEzVz) 
+ 
+    deallocate(spec_gamma,Gamma_spec_bin)
+	
+end subroutine DeallocatePrtlStatVars
 		
 !-------------------------------------------------------------------------------------------------
 !Allocate arrays according to the current bin size and range to be covered 
@@ -41,6 +54,7 @@ end subroutine InitPrtlStatVars
 subroutine CreateGammaSpecBin     
   integer :: i
   Gamma_spec_binlen=ceiling((log(gmax_allflv)-log(gmin_allflv))/Gamma_spec_binwidth)+1
+  !if(proc.eq.0) print*,'Gamma spec binlen',Gamma_spec_binlen,'gmax',gmax_allflv,'gmin',gmin_allflv
   if(size(Gamma_spec_bin).lt.Gamma_spec_binlen) then 
       deallocate(spec_gamma,Gamma_spec_bin)
 	  allocate(spec_gamma(Nflvr,Gamma_spec_binlen),Gamma_spec_bin(Gamma_spec_binlen)) 
@@ -55,7 +69,7 @@ subroutine InitSpeedSpecBin
   Speed_spec_binlen=ceiling(1.0_psn/Speed_spec_binwidth)+1
   allocate(spec_speed(Nflvr,Speed_spec_binlen),Speed_spec_bin(Speed_spec_binlen)) 
   do i=1,Speed_spec_binlen
-      Speed_spec_bin(i)=Speed_spec_binwidth*((i-1)**2)
+      Speed_spec_bin(i)=Speed_spec_binwidth*(i-1)
   end do
 end subroutine InitSpeedSpecBin
 
@@ -85,7 +99,7 @@ end subroutine CalcGmaxGminLocal_all_prtl
 subroutine CalcGammaSpectrum_all_prtl
   integer :: n,ch,bin_ind
   real(psn) ::gamma
-  spec_gamma=0.0_psn
+  spec_gamma=0
   do n=1,used_prtl_arr_size
        if(qp(n).eq.0) cycle
        ch=flvp(n)
@@ -109,14 +123,14 @@ subroutine CalcSpeedSpectrum_all_prtl
   do n=1,used_prtl_arr_size
        if(qp(n).eq.0) cycle
        ch=flvp(n)
-       speed=1.0_psn - 1.0_psn/(1.0_psn+up(n)*up(n)+vp(n)*vp(n)+wp(n)*wp(n))               
+       speed=sqrt(1.0_psn - 1.0_psn/(1.0_psn+up(n)*up(n)+vp(n)*vp(n)+wp(n)*wp(n)) )           
        bin_ind=floor(speed/Speed_spec_binwidth) +1
        spec_speed(ch,bin_ind)=spec_speed(ch,bin_ind)+abs(qp(n))
   end do
   do n=1,used_test_prtl_arr_size
        if(qtp(n).eq.0) cycle
        ch=flvtp(n)
-       speed=1.0_psn - 1.0_psn/(1.0_psn+utp(n)*utp(n)+vtp(n)*vtp(n)+wtp(n)*wtp(n))               
+       speed=sqrt(1.0_psn - 1.0_psn/(1.0_psn+utp(n)*utp(n)+vtp(n)*vtp(n)+wtp(n)*wtp(n)) )            
        bin_ind=floor(speed/Speed_spec_binwidth) +1
        spec_speed(ch,bin_ind)=spec_speed(ch,bin_ind)+abs(qtp(n))
   end do
@@ -372,7 +386,7 @@ subroutine ReduceReal8Arr1(Arr,sizex)
     if(proc.eq.0) then 
        call MPI_REDUCE(MPI_IN_PLACE,Arr,sizex,MPI_REAL8,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
     else 
-        call MPI_REDUCE(Arr,  Arr,sizex,MPI_REAL8,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
+       call MPI_REDUCE(Arr,  Arr,sizex,MPI_REAL8,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
     end if
 end subroutine ReduceReal8Arr1
 subroutine ReduceReal8Arr2(Arr,sizex,sizey)
@@ -382,7 +396,7 @@ subroutine ReduceReal8Arr2(Arr,sizex,sizey)
     if(proc.eq.0) then 
        call MPI_REDUCE(MPI_IN_PLACE,Arr,sizex*sizey,MPI_REAL8,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
     else 
-        call MPI_REDUCE(Arr,  Arr,sizex*sizey,MPI_REAL8,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
+       call MPI_REDUCE(Arr,  Arr,sizex*sizey,MPI_REAL8,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
     end if
 end subroutine ReduceReal8Arr2 
 	   

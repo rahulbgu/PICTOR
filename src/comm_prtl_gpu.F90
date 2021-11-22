@@ -95,7 +95,6 @@ end subroutine UnloadTransferPrtlGPU
                end if			   
          end do
 		 
-		 !print*,'Prtl cross count at CPU',lc,rc,bc,tc,dc,uc
 		 
 		 
 		 do j=1,Nthreads
