@@ -33,6 +33,14 @@ contains
 !---------------------------------------------------------------------------
 ! Following subroutines are for computing and using "npx"; particle density along the x-direction (cell-by-cell)
 !---------------------------------------------------------------------------	
+    subroutine BalanceLoad
+		if(modulo(t,domain_change_period).ne.0) return
+		select case (load_balancing_type)
+			case(1)
+				call LoadBalanceShock
+		end select
+	end subroutine BalanceLoad 
+	
 	subroutine CalcNumPrtlX
 		integer :: n, ind, shift
 		npx=0
@@ -43,11 +51,6 @@ contains
 		do n=1,used_prtl_arr_size
 			if(qp(n).eq.0) continue
 			ind=xp(n)+shift
-			npx(ind)=npx(ind)+1
-		end do
-		do n=1,used_test_prtl_arr_size
-			if(qtp(n).eq.0) continue
-			ind=xtp(n)+shift
 			npx(ind)=npx(ind)+1
 		end do
 #endif		
@@ -101,7 +104,7 @@ contains
 !        if(modulo(t,domain_change_period).eq.0) then
 !            exectime_grid=0
 !            exectime_grid(procxind(proc),procyind(proc))=mean_TotalTime
-!            call BcastExecTimeAllHomogeneous(exectime_grid)
+!            call BcastExecTimeAll(exectime_grid)
 !
 !          !first calculate the average execution time of all proc in a column (i=const.)
 !            mean_TotalTime_column=0
@@ -229,7 +232,7 @@ contains
            exectime_grid=0
            dYdomain=yborders(procyind(proc)+1)-yborders(procyind(proc))
 		   exectime_grid(procxind(proc),procyind(proc),proczind(proc))=real(max(np,10))/dYdomain
-           call BcastExecTimeAllHomogeneous(exectime_grid)
+           call BcastExecTimeAll(exectime_grid)
          !first calculate the average execution time of all proc in a column (i=const.)
            Max_TotalTime_column=0
            do i=0,nSubDomainsX-1
@@ -296,7 +299,7 @@ contains
            exectime_grid=0
            dYdomain=yborders(procyind(proc)+1)-yborders(procyind(proc))
 		   exectime_grid(procxind(proc),procyind(proc),proczind(proc))=real(max(np,10))/dYdomain
-           call BcastExecTimeAllHomogeneous(exectime_grid)
+           call BcastExecTimeAll(exectime_grid)
          !first calculate the average execution time of all proc in a column (i=const.)
            Max_TotalTime_column=0
            do i=0,nSubDomainsX-1
@@ -360,86 +363,72 @@ contains
 
  end subroutine LoadBalanceYRecn
 
- subroutine LoadBalanceShock(xinj,xwall)
-      integer :: i,j,k,xwall,dXdomain
-	  real(dbpsn) :: xinj 
+ subroutine LoadBalanceShock
+      integer :: i,j,k,dXdomain
+	  real(dbpsn) :: xinj
+	  integer ::  xwall 
       real, dimension(0:nSubDomainsX-1) :: Max_TotalTime_column
       real :: time_temp
 	  real(psn) :: mean_dx 
-      integer :: loadbalance_profiling_ind
 	  integer :: xinj_proc
-      save loadbalance_profiling_ind
-      data loadbalance_profiling_ind /1/
-      !profile the performance history of all processors before making any decison about balancing the laod
-!       if(modulo(t,loadbalance_profiling_period).eq.0) then
-!            if(loadbalance_profiling_ind.gt.10) loadbalance_profiling_ind=1
-!            hist_TotalTime(loadbalance_profiling_ind)=real(exec_time(31))
-!            loadbalance_profiling_ind=loadbalance_profiling_ind+1
-!            mean_TotalTime=average(hist_TotalTime,10)
-!       end if
 
-       if(modulo(t,domain_change_period).eq.0) then
-           exectime_grid=0
-           dXdomain=xborders(procxind(proc)+1)-max(xborders(procxind(proc)),xwall)
-		   dXdomain=max(1,dXdomain)
-		   exectime_grid(procxind(proc),procyind(proc),proczind(proc))=real(max(np,10))/dXdomain
-           call BcastExecTimeAllHomogeneous(exectime_grid)
+	  xinj = BC_Xmax_Prtl
+	  xwall = floor(BC_Xmin_prtl)
+	  
+       exectime_grid=0
+       dXdomain=xborders(procxind(proc)+1)-max(xborders(procxind(proc)),xwall)
+	   dXdomain=max(1,dXdomain)
+	   exectime_grid(procxind(proc),procyind(proc),proczind(proc))=real(max(np,10))/dXdomain
+       call BcastExecTimeAll(exectime_grid)
 
-         !first calculate the average execution time of all proc in a column (i=const.)
-           Max_TotalTime_column=0
-           do i=0,nSubDomainsX-1
-               do j=0,nSubDomainsY-1
+      !first calculate the average execution time of all proc in a column (i=const.)
+       Max_TotalTime_column=0
+       do i=0,nSubDomainsX-1
+           do j=0,nSubDomainsY-1
 #ifdef twoD
-                   do k=0,0
+               do k=0,0
 #else				   
-				   do k=0,nSubDomainsZ-1
+			   do k=0,nSubDomainsZ-1
 #endif
-                       if(exectime_grid(i,j,k).gt.Max_TotalTime_column(i)) Max_TotalTime_column(i)=exectime_grid(i,j,k)
-				   end do 
-               end do
+                   if(exectime_grid(i,j,k).gt.Max_TotalTime_column(i)) Max_TotalTime_column(i)=exectime_grid(i,j,k)
+			   end do 
            end do
-          
-		   !Find the proc. index where injector lies 
-		   do i=0,nSubDomainsX-1
-			   if((xinj.ge.xborders(i)).and.(xinj.lt.xborders(i+1))) then 
-				   xinj_proc=i 
-			   end if 
-		   end do 
-           !Adjust the x-boundaries to redistribute load, and do not include last proc along x in load balancing 
-           time_temp=0
-           do i=0,nSubDomainsX-1
-			    if(i.eq.xinj_proc) exit 
-                time_temp=time_temp+1.0_psn/Max_TotalTime_column(i)
-           end do
-           !time_temp=(xborders(nSubDomainsX-1)-xborders(0))/time_temp
-           !time_temp=(xborders(xinj_proc)-xwall)/time_temp
-           time_temp=(xinj-xwall)/time_temp
-		   
-		   
+       end do
+      
+	   !Find the index of proc. which contains the injector 
+	   do i=0,nSubDomainsX-1
+		   if((xinj.ge.xborders(i)).and.(xinj.lt.xborders(i+1))) xinj_proc=i 
+	   end do 
+	   
+       !Adjust the x-boundaries to redistribute load, and do not include last proc along x in load balancing 
+       time_temp=0
+       do i=0,nSubDomainsX-1
+		    if(i.eq.xinj_proc) exit 
+            time_temp=time_temp+1.0_psn/Max_TotalTime_column(i)
+       end do
+       !time_temp=(xborders(nSubDomainsX-1)-xborders(0))/time_temp
+       !time_temp=(xborders(xinj_proc)-xwall)/time_temp
+       time_temp=(xinj-xwall)/time_temp
+	   
+	   
 
-           xborders_new(0)=xborders(0)
-           do i=0,nSubDomainsX-1
-			   if(i+1.lt.xinj_proc) then 			 
-                   !xborders_new(i+1)=xborders_new(i)+max(1,int(time_temp*(xborders(i+1)-xborders(i))/mean_TotalTime_column(i)))
-                   xborders_new(i+1)=max(xwall,xborders_new(i))+max(4,fsave_ratio*ceiling(time_temp/(Max_TotalTime_column(i)*fsave_ratio)))
-                   xborders_new(i+1)=min(xborders_new(i+1),xborders(xinj_proc)-max(fsave_ratio,4)*(xinj_proc-i-1)) !to set maximum limit on domain enlargement		
-			   else
-				   xborders_new(i+1)=xborders(i+1)
-			   end if 	
-           end do
-		   !xborders_new(nSubDomainsX-1)=xborders(nSubDomainsX-1)
-           !xborders_new(nSubDomainsX)=xborders(nSubDomainsX)
-		   
-		   !mean_dx=real(xborders(xinj_proc)-xwall)/real(3*xinj_proc) !Half of average domain size on each proc
-		   !print*,'mean_dx',mean_dx,xborders(xinj_proc),fsave_ratio*floor(mean_dx/fsave_ratio)
-		   !if(xinj.gt.xborders(xinj_proc)+mean_dx) then 
-		   if(xinj_proc.gt.0) then 
-			   xborders_new(xinj_proc)=xborders(xinj_proc)+fsave_ratio*floor(real(xinj-xborders(xinj_proc))/fsave_ratio)
-		   end if 
-	
-           call CommitNewBordersX
+       xborders_new(0)=xborders(0)
+       do i=0,nSubDomainsX-1
+		   if(i+1.lt.xinj_proc) then 			 
+               xborders_new(i+1)=max(xwall,xborders_new(i))+max(4,fsave_ratio*ceiling(time_temp/(Max_TotalTime_column(i)*fsave_ratio)))
+               xborders_new(i+1)=min(xborders_new(i+1),xborders(xinj_proc)-max(fsave_ratio,4)*(xinj_proc-i-1)) !to set maximum limit on domain enlargement		
+		   else
+			   xborders_new(i+1)=xborders(i+1)
+		   end if 	
+       end do
 
-       end if
+	   
+	   if(xinj_proc.gt.0) then 
+		   xborders_new(xinj_proc)=xborders(xinj_proc)+fsave_ratio*floor(real(xinj-xborders(xinj_proc))/fsave_ratio)
+	   end if 
+
+       call CommitNewBordersX
+
 
  end subroutine LoadBalanceShock
  
@@ -454,8 +443,6 @@ contains
      if(xborders_changed) then
 		if(proc.eq.0) print*,'Load Balancing:: adjusting the subdomain size along the x-direction' 
         call SetNewXBorders
-        call ReorderPrtlArr
-		call ReorderTestPrtlArr
      end if
 	 
  end subroutine CommitNewBordersX
@@ -478,18 +465,12 @@ contains
       save loadbalance_profiling_ind
       data loadbalance_profiling_ind /1/
 
-      !profile the performance history of all processors before making any decison about balancing the laod
-!       if(modulo(t,loadbalance_profiling_period).eq.0) then
-!            if(loadbalance_profiling_ind.gt.10) loadbalance_profiling_ind=1
-!            hist_TotalTime(loadbalance_profiling_ind)=real(exec_time(31))
-!            loadbalance_profiling_ind=loadbalance_profiling_ind+1
-!            mean_TotalTime=average(hist_TotalTime,10)
-!       end if
+
 
        if(modulo(t,domain_change_period).eq.0) then
            exectime_grid=0
 		   exectime_grid(procxind(proc),procyind(proc),proczind(proc))=real(max(np,10))/(xborders(procxind(proc)+1)-xborders(procxind(proc)))
-           call BcastExecTimeAllHomogeneous(exectime_grid)
+           call BcastExecTimeAll(exectime_grid)
 
          !first calculate the average execution time of all proc in a column (i=const.)
            Max_TotalTime_column=0
@@ -657,20 +638,19 @@ contains
 	     call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,filteredEy,8)
 	     call SendRecvFldSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv,filteredEz,9)
 	 end if
-	  
-     !Now Send-Recieve particle data
-	
-     call SendRecvPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv)
-     call SendRecvTestPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv)
-
-     deallocate(segment_borders_send,segment_borders_recv)
 
      !update all other relevant auxiliary arrays and varaiables local to this domain 
      mx=mx_new
      my=my_new
      mz=mz_new     
      xmax=mx-2
-     xlen=xmax-3
+     xlen=xmax-3	  
+	  
+     !Now Send-Recieve particle data
+     call SendRecvPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv)
+
+     deallocate(segment_borders_send,segment_borders_recv)
+
 
      deallocate(buff_tJx,buff_tJy,buff_tJz,buff_bJx,buff_bJy,buff_bJz)
      allocate(buff_bJx(mx,3,mz),buff_tJx(mx,3,mz),buff_bJy(mx,3,mz),buff_tJy(mx,3,mz),buff_bJz(mx,3,mz),buff_tJz(mx,3,mz)) 
@@ -692,7 +672,11 @@ contains
      call SendFullDomainEMFldToGPU
 	 call SendFullDomainCurrToGPU
 	 call SetThreadBlockGrid
-	 !call ResetCurrentGPU
+	 
+	 !Move particles from cpu to gpus
+	 call ReorderPrtlArrGPU
+	 call SendPrtlToGPU(prtl_arr_size,xp,yp,zp,up,vp,wp,qp,tagp,flvp,var1p,buff_size_prtl_gpu,used_prtl_arr_size)
+	 call ClearPrtlArrCPU
 #endif		 
 
      xborders=xborders_new !now update the x-borders   
@@ -865,11 +849,14 @@ subroutine SendRecvPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,
           end do 
      end do 
      
-
+	 
+	 call ReorderPrtlArr ! emptied out particle slots are reclaimed
+	 
      
      !Now send the particles to their new proc
      np=np+incoming_np !update number of particles 
-     if(np.gt.prtl_arr_size) call ReshapePrtlArr(int(1.05*np)) !make sure that there is enough place to accomodate all new particles
+	 !make sure that there is enough place to accomodate all new particles
+     if(used_prtl_arr_size+incoming_np.gt.prtl_arr_size) call ReshapePrtlArr(int(1.05*(used_prtl_arr_size+incoming_np))+100) 
 
      precv_size=maxval(segment_np_recv)
      allocate(precv(precv_size))
@@ -882,127 +869,12 @@ subroutine SendRecvPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,
           end if
      end do
 
-     used_prtl_arr_size=prtl_arr_size
-#ifdef gpu
-     call ReorderPrtlArr
-     call ReorderTestPrtlArr
-	 call ReorderPrtlArrGPU
-	 call ReorderTestPrtlArrGPU
-	 call SendPrtlToGPU(prtl_arr_size,xp,yp,zp,up,vp,wp,qp,tagp,flvp,var1p,buff_size_prtl_gpu,used_prtl_arr_size)
-	 call SendTestPrtlToGPU(test_prtl_arr_size,xtp,ytp,ztp,utp,vtp,wtp,qtp,tagtp,flvtp,var1tp,buff_size_test_prtl_gpu,used_test_prtl_arr_size)
-#endif	 
 
      deallocate(psend) !free the memory that was used to send-recv particles      
-     deallocate(precv)
-#ifdef gpu
-     call ClearPrtlArrCPU
-#endif	 
+     deallocate(precv) 
 end subroutine SendRecvPrtlSegmentsX
 
 
-subroutine SendRecvTestPrtlSegmentsX(procxind_this,lmost_send,rmost_send,lmost_recv,rmost_recv,segment_borders_send,segment_borders_recv)
-	 implicit none 
-	 integer :: procxind_this,i,j,k,n,psend_size,pcount,incoming_np,precv_size
-     integer :: lmost_send,rmost_send,lmost_recv,rmost_recv
-     type(particle), dimension(:), allocatable :: psend,precv
-     integer, dimension(lmost_send:rmost_send+1)::segment_borders_send,extent_send
-     integer, dimension(lmost_recv:rmost_recv+1)::segment_borders_recv
-     integer, dimension(lmost_send:rmost_send):: segment_np_send,prtl_start_ind
-     integer, dimension(lmost_recv:rmost_recv):: segment_np_recv
-
-     
-     !scan through the particle data to get the size of the data to be sent to each proc
-     extent_send=segment_borders_send ! an extended border is needed to include corner and edge particles
-     extent_send(rmost_send+1)=extent_send(rmost_send+1)+1 
-     extent_send(lmost_send)=extent_send(lmost_send)-1
-     segment_np_send=0
-     do n=1,used_test_prtl_arr_size
-          if(qtp(n).eq.0) cycle
-          i=lmost_send
-          do while(i.le.rmost_send) !this can be optimised, if the need be (if large number segments break away from one proc)
-               if((xtp(n).ge.extent_send(i)).and.(xtp(n).lt.extent_send(i+1))) then
-                    segment_np_send(i)=segment_np_send(i)+1
-                    exit
-               end if 
-               i=i+1
-          end do 
-     end do 
-
-     !find the offset value for each proc
-     pcount=1
-     prtl_start_ind=1
-     psend_size=0
-     do i=lmost_send,rmost_send
-          if(i.eq.procxind_this) cycle !becuase particle data is not sent to self
-          prtl_start_ind(i)=pcount          
-          pcount=pcount+segment_np_send(i)
-          psend_size=psend_size+segment_np_send(i)          
-     end do
-     
-     allocate(psend(psend_size)) !all outliers would be loaded in psend
-     ntp=ntp-psend_size !update number of particles in this proc
-
-     !send the size of particle data to all relevant proc
-     j=procyind(proc)
-	 k=proczind(proc)
-
-     segment_np_recv=0
-     incoming_np=0
-
-     do i=min(lmost_send,lmost_recv),max(rmost_send,rmost_recv)
-          if(i.eq.procxind_this) cycle 
-          if((i.ge.lmost_send).and.(i.le.rmost_send)) then 
-               call SendPrtlSizeToNewProc(proc_grid(i,j,k),segment_np_send(i))
-          else if((i.ge.lmost_recv).and.(i.le.rmost_recv)) then 
-              call RecvPrtlSizeFromOldProc(proc_grid(i,j,k),segment_np_recv(i))
-               incoming_np=incoming_np+segment_np_recv(i)     
-          end if
-     end do
-
-     
-     !now load outliers in all segments in psend array, ready to be sent in parts to it's new proc 
-     segment_np_send=0 !reinitialise to recount particle, but this time load them in ptemp
-     do n=1,used_test_prtl_arr_size
-          if(qtp(n).eq.0) cycle
-         i=lmost_send
-          do while(i.le.rmost_send) 
-               if((xtp(n).ge.extent_send(i)).and.(xtp(n).lt.extent_send(i+1))) then                    
-                    if(i.ne.procxind_this) then 
-                       xtp(n)=xtp(n)-segment_borders_send(i)   
-					   call LoadTestPrtl(psend,psend_size,prtl_start_ind(i)+segment_np_send(i),n)  
-                       segment_np_send(i)=segment_np_send(i)+1
-                       call DeleteTestPrtl(n) !delete particle if the particle is leaving this proc                       
-                    else !if particle remains on the same proc, make sure it's x-cordinate is updated
-                       xtp(n)=xtp(n)+xborders(procxind_this)-xborders_new(procxind_this)                     
-                    end if
-                    exit
-               end if 
-               i=i+1
-          end do 
-     end do 
-     
-     
-     
-     !Now send the particles to their new proc
-     ntp=ntp+incoming_np !update number of particles 
-     if(ntp.gt.test_prtl_arr_size) call ReshapeTestPrtlArr(int(1.05*ntp)) !make sure that there is enough place to accomodate all new particles
-
-     precv_size=maxval(segment_np_recv)
-     allocate(precv(precv_size))
-
-     do i=min(lmost_send,lmost_recv),max(rmost_send,rmost_recv)
-          if(i.eq.procxind_this) cycle 
-          if((i.ge.lmost_send).and.(i.le.rmost_send)) then 
-              call SendPrtlToNewProc(proc_grid(i,j,k),prtl_start_ind(i),prtl_start_ind(i)+segment_np_send(i)-1,segment_np_send(i),psend,psend_size)     
-          else if((i.ge.lmost_recv).and.(i.le.rmost_recv)) then 
-               call RecvTestPrtlFromOldProc(proc_grid(i,j,k),segment_np_recv(i),segment_np_recv(i),precv,precv_size,segment_borders_recv(i),0)
-          end if
-     end do
-     
-     deallocate(psend) !free the memory that was used to send-recv particles      
-     deallocate(precv)
-	 used_test_prtl_arr_size=test_prtl_arr_size	 
-end subroutine SendRecvTestPrtlSegmentsX
 
 
 !----------------------------------------------------------------------------------------------------------------------
@@ -1051,7 +923,6 @@ end subroutine SendRecvTestPrtlSegmentsX
 	 end if	 
      !Now Send-Recieve particle data
      call SendRecvPrtlSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,tmost_recv,segment_borders_send,segment_borders_recv)
-     call SendRecvTestPrtlSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,tmost_recv,segment_borders_send,segment_borders_recv)
 
      deallocate(segment_borders_send,segment_borders_recv)
 
@@ -1243,206 +1114,6 @@ subroutine SendRecvPrtlSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,
 end subroutine SendRecvPrtlSegmentsY
 
 
-subroutine SendRecvTestPrtlSegmentsY(procyind_this,bmost_send,tmost_send,bmost_recv,tmost_recv,segment_borders_send,segment_borders_recv)
-	 implicit none 
-	 integer :: procyind_this,i,j,k,n,psend_size,pcount,incoming_np,precv_size
-     integer :: bmost_send,tmost_send,bmost_recv,tmost_recv
-     type(particle), dimension(:), allocatable :: psend,precv
-     integer, dimension(bmost_send:tmost_send+1)::segment_borders_send,extent_send
-     integer, dimension(bmost_recv:tmost_recv+1)::segment_borders_recv
-     integer, dimension(bmost_send:tmost_send):: segment_np_send,prtl_start_ind
-     integer, dimension(bmost_recv:tmost_recv):: segment_np_recv
 
-     
-     !scan through the particle data to get the size of the data to be sent to each proc
-     extent_send=segment_borders_send ! an extended border is needed to include corner and edge particles
-     extent_send(tmost_send+1)=extent_send(tmost_send+1)+1 
-     extent_send(bmost_send)=extent_send(bmost_send)-1
-     segment_np_send=0
-     do n=1,used_test_prtl_arr_size
-          if(qtp(n).eq.0) cycle
-          i=bmost_send
-          do while(i.le.tmost_send) !this can be optimised, if the need be (if large number segments break away from one proc)
-               if((xtp(n).ge.extent_send(i)).and.(xtp(n).lt.extent_send(i+1))) then
-                    segment_np_send(i)=segment_np_send(i)+1
-                    exit
-               end if 
-               i=i+1
-          end do 
-     end do 
-
-     !find the offset value for each proc
-     pcount=1
-     prtl_start_ind=1
-     psend_size=0
-     do i=bmost_send,tmost_send
-          if(i.eq.procyind_this) cycle !becuase particle data is not sent to self
-          prtl_start_ind(i)=pcount          
-          pcount=pcount+segment_np_send(i)
-          psend_size=psend_size+segment_np_send(i)          
-     end do
-     
-     allocate(psend(psend_size)) !all outliers would be loaded in psend
-     ntp=ntp-psend_size !update number of particles in this proc
-
-     !send the size of particle data to all relevant proc
-     i=procxind(proc)
-	 k=proczind(proc)
-
-     segment_np_recv=0
-     incoming_np=0
-
-     do j=min(bmost_send,bmost_recv),max(tmost_send,tmost_recv)
-          if(j.eq.procyind_this) cycle 
-          if((j.ge.bmost_send).and.(j.le.tmost_send)) then 
-               call SendPrtlSizeToNewProc(proc_grid(i,j,k),segment_np_send(j))
-          else if((j.ge.bmost_recv).and.(j.le.tmost_recv)) then 
-              call RecvPrtlSizeFromOldProc(proc_grid(i,j,k),segment_np_recv(j))
-               incoming_np=incoming_np+segment_np_recv(j)     
-          end if
-     end do
-
-     
-     !now load outliers in all segments in psend array, ready to be sent in parts to it's new proc 
-     segment_np_send=0 !reinitialise to recount particle, but this time load them in ptemp
-     do n=1,used_test_prtl_arr_size
-          if(qtp(n).eq.0) cycle
-          j=bmost_send
-          do while(j.le.tmost_send) 
-               if((xtp(n).ge.extent_send(j)).and.(xtp(n).lt.extent_send(j+1))) then                    
-                    if(j.ne.procyind_this) then 
-                       ytp(n)=ytp(n)-segment_borders_send(i)   
-					   call LoadTestPrtl(psend,psend_size,prtl_start_ind(j)+segment_np_send(j),n)  
-                       segment_np_send(j)=segment_np_send(j)+1
-                       call DeleteTestPrtl(n) !delete particle if the particle is leaving this proc                       
-                    else !if particle remains on the same proc, make sure it's x-cordinate is updated
-                       xtp(n)=xtp(n)+yborders(procyind_this)-yborders_new(procyind_this)                     
-                    end if
-                    exit
-               end if 
-               j=j+1
-          end do 
-     end do 
-     
-     
-     
-     !Now send the particles to their new proc
-     ntp=ntp+incoming_np !update number of particles 
-     if(ntp.gt.test_prtl_arr_size) call ReshapeTestPrtlArr(int(1.05*ntp)) !make sure that there is enough place to accomodate all new particles
-
-     precv_size=maxval(segment_np_recv)
-     allocate(precv(precv_size))
-
-     do j=min(bmost_send,bmost_recv),max(tmost_send,tmost_recv)
-          if(j.eq.procyind_this) cycle 
-          if((j.ge.bmost_send).and.(j.le.tmost_send)) then 
-              call SendPrtlToNewProc(proc_grid(i,j,k),prtl_start_ind(j),prtl_start_ind(j)+segment_np_send(j)-1,segment_np_send(j),psend,psend_size)     
-          else if((j.ge.bmost_recv).and.(j.le.tmost_recv)) then 
-               call RecvTestPrtlFromOldProc(proc_grid(i,j,k),segment_np_recv(j),segment_np_recv(j),precv,precv_size,0,segment_borders_recv(j))
-          end if
-     end do
-     
-     deallocate(psend) !free the memory that was used to send-recv particles      
-     deallocate(precv)
-	 used_test_prtl_arr_size=test_prtl_arr_size	 
-end subroutine SendRecvTestPrtlSegmentsY
-
-
-
-
-!NOTE ::: The following subroutines are outdated. They were not update for structure of arrays. Currently not in use 
-!------------------------------------------------------------------------------------------------------------------------
-!subroutine to swap physical regions between two proc proc1 and proc2
-!------------------------------------------------------------------------------------------------------------------------
-! subroutine SwapDomain(proc1,proc2)
-!      integer :: proc1,proc2
-!      if(proc1.eq.proc2) return
-!      if(proc.eq.proc1) call SwapSendRecvDomainData(proc2)
-!      if(proc.eq.proc2) call SwapSendRecvDomainData(proc1)
-!      call SwapUpdateNeighbourList(proc1,proc2)
-! end subroutine SwapDomain
-!
-! subroutine SwapSendRecvDomainData(SwapProc)
-!      integer :: SwapProc,new_prtl_arr_size,new_np,i
-!      type(particle), dimension(:), allocatable :: SwapPrtl
-!      !First Exchange fields and update all fld and related variables
-!      call Swap_SendRecvFldSize(SwapProc,mx_new,my_new,mz_new)
-!      !print *,'Before swap at',proc,'Ex(1,1,1) is',Ex(1,1,1)
-!      call Swap_SendRecvFld(SwapProc,Ex,mx_new,my_new,mz_new)
-!      !print *,'After swap at',proc,'Ex(1,1,1) is',Ex(1,1,1)
-!
-!      call Swap_SendRecvFld(SwapProc,Ey,mx_new,my_new,mz_new)
-!      call Swap_SendRecvFld(SwapProc,Ez,mx_new,my_new,mz_new)
-!      call Swap_SendRecvFld(SwapProc,Bx,mx_new,my_new,mz_new)
-!      call Swap_SendRecvFld(SwapProc,By,mx_new,my_new,mz_new)
-!      call Swap_SendRecvFld(SwapProc,Bz,mx_new,my_new,mz_new)
-!      deallocate(Jx,Jy,Jz,F0)
-!      !domain decomposition is not done in z direction
-!      mx=mx_new
-!      my=my_new
-!      mz=mz_new
-!      xmax=mx-2
-!      ymax=my-2
-!      xlen=xmax-3
-!      ylen=ymax-3
-!
-!      allocate(Jx(mx,my,mz),Jy(mx,my,mz),Jz(mx,my,mz),F0(mx,my,mz))
-!      Jx=0
-!      Jy=0
-!      Jz=0
-!      deallocate(buff_tJx,buff_tJy,buff_tJz,buff_bJx,buff_bJy,buff_bJz)
-!      deallocate(buff_lJx,buff_lJy,buff_lJz,buff_rJx,buff_rJy,buff_rJz)
-!
-!      allocate(buff_bJx(mx,3,mz),buff_tJx(mx,3,mz),buff_bJy(mx,3,mz),buff_tJy(mx,3,mz),buff_bJz(mx,3,mz),buff_tJz(mx,3,mz))
-!      allocate(buff_lJx(3,my,mz),buff_rJx(3,my,mz),buff_lJy(3,my,mz),buff_rJy(3,my,mz),buff_lJz(3,my,mz),buff_rJz(3,my,mz))
-!
-!      !call Swap_SendRecvProcXYind(SwapProc) ! call this subroutine to exchage global location of the physical domain when savedata is modified to use only global x and y range instead of procx(y)ind
-!
-!      !Now exchange particles
-!      !print *,'before swap at',proc,'p(1)x is',p(1)%x
-!      call Swap_SendRecvPrtlSize(SwapProc,new_prtl_arr_size,new_np)
-!      allocate(SwapPrtl(new_prtl_arr_size))
-!      call Swap_SendRecvPrtl(SwapProc,SwapPrtl,new_prtl_arr_size)
-!      call move_alloc(SwapPrtl,p)
-!      !print *,'after swap at',proc,'p(1)x is',p(1)%x
-!      np=new_np
-!      prtl_arr_size=new_prtl_arr_size
-!      !update the rank of neighbouring processors
-!      call Swap_SendRecvNeighbourProc(SwapProc,lproc)
-!      call Swap_SendRecvNeighbourProc(SwapProc,rproc)
-!      call Swap_SendRecvNeighbourProc(SwapProc,tproc)
-!      call Swap_SendRecvNeighbourProc(SwapProc,bproc)
-!
-!      !update the list of free slots
-!      deallocate(pfree)
-!      allocate(pfree(prtl_arr_size))
-!      pfree=0
-!      pfree_ind=0
-!      do i=1,prtl_arr_size
-!           if(p(i)%q.eq.0) then
-!                pfree_ind=pfree_ind+1
-!                pfree(pfree_ind)=i
-!           end if
-!      end do
-!
-! end subroutine SwapSendRecvDomainData
-! subroutine SwapUpdateNeighbourList(proc1,proc2)
-!      integer :: proc1,proc2
-!      call SwapUpdateNeighbourList1(lproc,proc1,proc2)
-!      call SwapUpdateNeighbourList1(rproc,proc1,proc2)
-!      call SwapUpdateNeighbourList1(tproc,proc1,proc2)
-!      call SwapUpdateNeighbourList1(bproc,proc1,proc2)
-! end subroutine SwapUpdateNeighbourList
-! subroutine SwapUpdateNeighbourList1(ngb_list,proc1,proc2)
-!      integer :: proc1,proc2
-!      integer :: ngb_list
-!      if(ngb_list.eq.proc1) then
-!            ngb_list=proc2
-!      else if(ngb_list.eq.proc2) then
-!            ngb_list=proc1
-!      end if
-! end subroutine SwapUpdateNeighbourList1
-
-!--------------------- End of swapping proc. subroutines ------------------------------------------------------------------
 
 end module loadbalance

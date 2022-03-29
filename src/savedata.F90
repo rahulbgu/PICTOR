@@ -562,7 +562,7 @@ subroutine save_prtl_mean
      INTEGER(HID_T) :: fid
      character (len=1024) :: FileName
      integer              :: err
-    real, dimension(Nflvr):: meanKE, meanExVx,meanEyVy,meanEzVz
+     real, dimension(Nflvr):: meanKE, meanExVx,meanEyVy,meanEzVz
      real, dimension(Nflvr)::meanPx2,meanPy2,meanPz2
      real, dimension(Nflvr,Speed_spec_binlen)::SpeedBin_meanExVx,SpeedBin_meanEyVy,SpeedBin_meanEzVz
      !real, dimension(Nflvr)::meanLR
@@ -828,6 +828,30 @@ end subroutine save_spec_master_all_prtl
        call h5fclose_f(fid,err)
        call h5close_f(err)
      end subroutine SaveParameters
+	 
+     subroutine SaveParam(ParamName, ParamValue)
+         character(len=*) :: ParamName
+		 real(psn) :: ParamValue
+		 
+		 fname=trim(data_folder)//"/param"
+         call h5open_f(err)
+         rank=1
+         data_dim1(1)=1
+         call h5fopen_f(fname,H5F_ACC_RDWR_F,fid, err)
+         call h5screate_simple_f(rank,data_dim1,dspace_id,err)     
+     
+         call h5dcreate_f(fid, ParamName, h5real_psn,dspace_id,dset_id,err)
+         call h5dwrite_f(dset_id,h5real_psn, ParamValue, data_dim1,err)
+         call h5dclose_f(dset_id,err)
+		 
+         call h5sclose_f(dspace_id,err)
+         call h5fclose_f(fid,err)
+         call h5close_f(err)
+	 end subroutine SaveParam
+		 
+	 
+	 
+	 
      subroutine save_total_energy
        call GatherEnergy
        if(proc.eq.0) then 
@@ -862,6 +886,8 @@ end subroutine save_spec_master_all_prtl
        end if
      end subroutine save_total_energy
      
+	 
+	 
      subroutine save_performance_collective
           INTEGER(HID_T) :: dspace_this
 
@@ -1049,8 +1075,8 @@ subroutine save_param_restart
      call HDF5writeINT(fid,dspace_id,'test_prtl_arr_size',test_prtl_arr_size)
      call HDF5writeINT(fid,dspace_id,'used_prtl_arr_size',used_prtl_arr_size)
      call HDF5writeINT(fid,dspace_id,'used_test_prtl_arr_size',used_test_prtl_arr_size)
-	 
-	 
+	
+	  
      call HDF5writeINT(fid,dspace_id,'np',np)
      call HDF5writeINT(fid,dspace_id,'ntp',ntp)
      call HDF5writeINT(fid,dspace_id,'Nflvr',Nflvr)
@@ -1063,6 +1089,7 @@ subroutine save_param_restart
      call HDF5writeINT(fid,dspace_id,'fdatayf_box',fdatayf_box)
      call HDF5writeINT(fid,dspace_id,'fdatazi_box',fdatazi_box)
      call HDF5writeINT(fid,dspace_id,'fdatazf_box',fdatazf_box)
+	 call HDF5writeINT(fid,dspace_id,'load_balancing_type', load_balancing_type)
 	 
      call HDF5writeINT(fid,dspace_id,'proc',proc)
      call HDF5writeINT(fid,dspace_id,'lproc',lproc)
@@ -1071,13 +1098,28 @@ subroutine save_param_restart
      call HDF5writeINT(fid,dspace_id,'bproc',bproc)
      call HDF5writeINT(fid,dspace_id,'uproc',uproc)
      call HDF5writeINT(fid,dspace_id,'dproc',dproc)
-     call h5sclose_f(dspace_id,err)     
+ 
+	 !save BC vars
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Xmin_Prtl',BC_Xmin_Prtl)
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Xmax_Prtl',BC_Xmax_Prtl)
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Ymin_Prtl',BC_Ymin_Prtl)
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Ymax_Prtl',BC_Ymax_Prtl)
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Zmin_Prtl',BC_Zmin_Prtl)
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Zmax_Prtl',BC_Zmax_Prtl)
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Xmin_Fld',BC_Xmin_Fld)
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Xmax_Fld',BC_Xmax_Fld)
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Ymin_Fld',BC_Ymin_Fld)
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Ymax_Fld',BC_Ymax_Fld)
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Zmin_Fld',BC_Zmin_Fld)
+	 call HDF5writeRealDP(fid,dspace_id,'BC_Zmax_Fld',BC_Zmax_Fld)
 	 
+	 
+	 call h5sclose_f(dspace_id,err)   
 	 
 	 !Flavour information for all species
      select case(psn)
      case(kind(1.0d0))
-         call h5tcopy_f(H5T_NATIVE_DOUBLE,h5psn,err)
+        call h5tcopy_f(H5T_NATIVE_DOUBLE,h5psn,err)
      case(kind(1.0e0))
         call h5tcopy_f(H5T_NATIVE_REAL,h5psn,err)
      end select
@@ -1085,6 +1127,9 @@ subroutine save_param_restart
  	 call h5screate_simple_f(rank,data_dim1,dspace_id,err)
      call h5dcreate_f(fid,'flvrqm',h5psn,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,h5psn,flvrqm,data_dim1,err)
+     call h5dclose_f(dset_id,err) 
+     call h5dcreate_f(fid,'FlvrCharge',h5psn,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,h5psn,FlvrCharge,data_dim1,err)
      call h5dclose_f(dset_id,err) 
      call h5dcreate_f(fid,'FlvrSaveFldData',h5psn,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,h5psn,FlvrSaveFldData,data_dim1,err)

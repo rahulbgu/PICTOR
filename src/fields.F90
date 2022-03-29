@@ -6,6 +6,16 @@ module fields
 	 use cyl_filter
 #endif	 
      implicit none
+	 
+	 logical :: ext_current_present = .false. ! no external current by default 
+
+	 procedure(sub_ext), pointer :: J_ext => null()
+	 abstract interface 
+		 subroutine sub_ext(x,y,z,fx,fy,fz)
+			 import :: psn
+			 real(psn) :: x,y,z,fx,fy,fz
+		 end subroutine
+     end interface 
 contains 
      
      subroutine ResetCurrent
@@ -13,6 +23,7 @@ contains
           Jy=0.0_psn
           Jz=0.0_psn
      end subroutine ResetCurrent
+	 
      subroutine UpdateCurrentsAllEdges
           call ExchangeYZEdgeCurrent
           call AddImportedCurrentYZ
@@ -187,14 +198,17 @@ contains
      end subroutine SyncCurrentEdges
 	 
 	 subroutine CurrentFilter_BC
-		 if(BC_Xmax_Fld.gt.0) call FoldInCurrentRight
-		 if(BC_Xmin_Fld.gt.0) call FoldInCurrentLeft
+		 if(BC_Xmax_Prtl.gt.0) call FoldInCurrentRight
+		 if(BC_Xmin_Prtl.gt.0) call FoldInCurrentLeft
 	 end subroutine CurrentFilter_BC
 	 
 	 subroutine FoldInCurrentRight
 		 integer :: ind_local
 		 
-		 ind_local = floor(BC_Xmax_Fld-xborders(procxind(proc))+3)
+		 ! Assuming current ->0 near the injector, let the current filter into a buffer domain between the inecjor and Fld BC 
+		 if(BC_Xmax_Prtl_Type.eq.'iflw') return  
+		 
+		 ind_local = floor(BC_Xmax_Prtl-xborders(procxind(proc))+3)
 		 if(ind_local.ge.1.and.ind_local.le.mx-1) then 
 			 Jy(ind_local,:,:) = Jy(ind_local,:,:) + Jy(ind_local+1,:,:)
 			 Jz(ind_local,:,:) = Jz(ind_local,:,:) + Jz(ind_local+1,:,:)
@@ -203,7 +217,7 @@ contains
 		 end if 
 
 		 
-		 ind_local = floor(BC_Xmax_Fld-0.5_psn -xborders(procxind(proc))+3)
+		 ind_local = floor(BC_Xmax_Prtl-0.5_psn -xborders(procxind(proc))+3)
 		 if(ind_local.ge.1.and.ind_local.le.mx-1) then 
 			 Jx(ind_local,:,:) = Jx(ind_local,:,:) + Jx(ind_local+1,:,:)
 			 Jx(ind_local+1,:,:) = 0
@@ -213,7 +227,7 @@ contains
 	 subroutine FoldInCurrentLeft
 		 integer :: ind_local
 		 
-		 ind_local = ceiling(BC_Xmin_Fld-xborders(procxind(proc))+3)
+		 ind_local = ceiling( BC_Xmin_Prtl  -xborders(procxind(proc))+3 )
 		 if(ind_local.ge.2.and.ind_local.le.mx) then 
 			 Jy(ind_local,:,:) = Jy(ind_local,:,:) + Jy(ind_local-1,:,:)
 			 Jz(ind_local,:,:) = Jz(ind_local,:,:) + Jz(ind_local-1,:,:)
@@ -221,12 +235,51 @@ contains
 			 Jz(ind_local-1,:,:) = 0
 		 end if 
 
-		 ind_local = ceiling(BC_Xmin_Fld-0.5_psn -xborders(procxind(proc))+3)
+		 ind_local = ceiling(BC_Xmin_Prtl-0.5_psn -xborders(procxind(proc))+3)
 		 if(ind_local.ge.2.and.ind_local.le.mx) then 
 			 Jx(ind_local,:,:) = Jx(ind_local,:,:) + Jx(ind_local-1,:,:)
 			 Jx(ind_local-1,:,:) = 0
 		 end if 
 	 end subroutine FoldInCurrentLeft
+	 
+	 !--------------------------------------------------------------------------------------------------     
+	 ! External Current
+	 !--------------------------------------------------------------------------------------------------	
+	 
+     subroutine AddExternalCurrent
+ 		integer :: i,j,k
+ 		real(psn) :: x,y,z
+ 		real(psn) :: j_x,j_y,j_z
+
+#ifdef twoD
+         do k=1,1
+#else 	
+ 	     do k=1,mz
+#endif 
+         do j=1,my 
+ 		    do i=1,mx
+ 				x= i -3.0_psn + xborders(procxind(proc))
+ 				y= j -3.0_psn + yborders(procyind(proc))
+#ifdef twoD    
+                 z=0.0_psn
+#else				 				
+ 				z= k - 3.0_psn + zborders(proczind(proc))
+#endif 				
+ 			    call J_ext(x + 0.5_psn,y,z,j_x,j_y,j_z)
+ 				Jx(i,j,k)= Jx(i,j,k) + j_x
+ 			    call J_ext(x,y + 0.5_psn,z,j_x,j_y,j_z)
+ 				Jy(i,j,k)= Jy(i,j,k) + j_y
+#ifdef twoD				
+ 				call J_ext(x,y,0.0_psn,j_x,j_y,j_z)
+#else				
+ 				call J_ext(x,y,z + 0.5_psn,j_x,j_y,j_z)
+#endif				
+			
+ 				Jz(i,j,k)= Jz(i,j,k) + j_z
+ 		    end do 
+         end do  
+         end do 
+ 	end subroutine AddExternalCurrent
 	 
 
 end module fields

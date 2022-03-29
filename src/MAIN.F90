@@ -13,14 +13,14 @@ program MAIN
      use savedata
      use comm_fldprtl
      use memory
-	 use reload	 
+	 use reload
+	 use loadbalance	 
 #ifdef cyl 
      use cyl_bc 
 #else
      use bc 
 #endif   	 
 #ifdef gpu 
-     !use cudafor
 	 use var_gpu
 	 use initialise_gpu
 	 use particles_gpu 
@@ -137,7 +137,8 @@ do t=tstart,tfinish
 !----------------------------------------------  	
 	 !This subroutine is defined in setup_*.F90	   NOTE: if needed, the GPU routines should be defined and called from within
 	 call PreAddCurrent! Allows for some setup dependent operations before '-current' is finally added to E. For example filtering	   
-
+     
+	 call AddExternalCurrent
  !----------------------------------------------
  ! Filter Current
  !----------------------------------------------  
@@ -203,6 +204,12 @@ do t=tstart,tfinish
 !Setup specific steps
 !---------------------------------------------- 			   
     call Finalsubroutines ! case dependent and is supplied by the setup module
+	
+!----------------------------------------------
+!Balance the load across all MPI ranks, if needed
+!---------------------------------------------- 
+    call BalanceLoad 
+		
 !----------------------------------------------
 !save the output 
 !---------------------------------------------- 
@@ -281,7 +288,11 @@ contains
           call StartupMessage
 		  call Initialisations	
   		    
-          if(proc.eq.0) call SaveParameters
+          if(proc.eq.0) then
+			   call SaveParameters
+		       call SaveSetupParameters
+		  end if 
+		  
           call ReorderPrtl
 		  
           if(.not.restart) then 
@@ -403,7 +414,6 @@ contains
 		 call RestartAllVars
 		 
 		 call InitPrtlBoundaries
-		 call InitBCpos
 		 
 		 call AllocateFldVars
 		 call RestartAllocatePrtlMem 

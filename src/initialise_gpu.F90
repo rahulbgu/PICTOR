@@ -254,8 +254,6 @@ contains
 		flvtp_gpu=flvtp_host_send
 		tagtp_gpu=tagtp_host_send
 		
-		!Now transfer particles and flds to GPU
-		call SendFullDomainTestPrtltoGPU
 		
 		
 		! allocate(qtp_send_gpu(buff_size_test_prtl_gpu)) !The buffer has smaller size, defined in var_gpu
@@ -377,7 +375,15 @@ contains
 		
 	end subroutine SetDomainSizeGPU
 	
-	
+	subroutine ResetGridGPU
+        call SetDomainSizeGPU
+   	    call DeallocateFldGPU
+   	    call AllocateFldGPU
+
+        call SendFullDomainEMFldToGPU
+   	    call SendFullDomainCurrToGPU
+   	    call SetThreadBlockGrid
+	end subroutine ResetGridGPU
 	
 	subroutine SetThreadBlockGrid
 #ifdef twoD			 

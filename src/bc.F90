@@ -18,35 +18,35 @@ contains
 		 real(psn)  :: Position
 		 if(Axis.eq.'x') then
 			 if(Side.eq.'lower') then 
-				 BC_Xmin_Fld=Position
+				 if(.not.restart) BC_Xmin_Fld=Position
 				 BC_Xmin_Fld_Type=Type
 				 call PeriodicX_Off
 			 end if 
 			 if(Side.eq.'upper') then 
-				 BC_Xmax_Fld=Position
+				 if(.not.restart) BC_Xmax_Fld=Position
 				 BC_Xmax_Fld_Type=Type
 				 call PeriodicX_Off
 			 end if 
 		 end if 
 		 if(Axis.eq.'y') then
 			 if(Side.eq.'lower') then 
-				 BC_Ymin_Fld=Position
+				 if(.not.restart) BC_Ymin_Fld=Position
 				 BC_Ymin_Fld_Type=Type
 				 call PeriodicY_Off
 			 end if 
 			 if(Side.eq.'upper') then 
-				 BC_Ymax_Fld=Position
+				 if(.not.restart) BC_Ymax_Fld=Position
 				 BC_Ymax_Fld_Type=Type
 				 call PeriodicY_Off
 			 end if 
 		 end if 
 		 if(Axis.eq.'z') then
 			 if(Side.eq.'lower') then 
-				 BC_Zmin_Fld=Position
+				 if(.not.restart) BC_Zmin_Fld=Position
 				 BC_Zmin_Fld_Type=Type
 			 end if 
 			 if(Side.eq.'upper') then 
-				 BC_Zmax_Fld=Position
+				 if(.not.restart) BC_Zmax_Fld=Position
 				 BC_Zmax_Fld_Type=Type
 			 end if 
 		 end if 
@@ -57,46 +57,45 @@ contains
 		 real(psn)  :: Position, dx
 		 if(Axis.eq.'x') then
 			 if(Side.eq.'lower') then 
-				 BC_Xmin_Prtl=Position
+				 if(.not.restart) BC_Xmin_Prtl=Position
 				 BC_Xmin_Prtl_Type=Type
 				 call PeriodicX_Off
 			 end if 
 			 if(Side.eq.'upper') then 
-				 BC_Xmax_Prtl=Position
+				 if(.not.restart) BC_Xmax_Prtl=Position
 				 BC_Xmax_Prtl_Type=Type
 				 call PeriodicX_Off
 			 end if 
 		 end if 
 		 if(Axis.eq.'y') then
 			 if(Side.eq.'lower') then 
-				 BC_Ymin_Prtl=Position
+				 if(.not.restart) BC_Ymin_Prtl=Position
 				 BC_Ymin_Prtl_Type=Type
 				 call PeriodicY_Off
 			 end if 
 			 if(Side.eq.'upper') then 
-				 BC_Ymax_Prtl=Position
+				 if(.not.restart) BC_Ymax_Prtl=Position
 				 BC_Ymax_Prtl_Type=Type
 				 call PeriodicY_Off
 			 end if 
 		 end if 
 		 if(Axis.eq.'z') then
 			 if(Side.eq.'lower') then 
-				 BC_Zmin_Prtl=Position
+				 if(.not.restart) BC_Zmin_Prtl=Position
 				 BC_Zmin_Prtl_Type=Type
 			 end if 
 			 if(Side.eq.'upper') then 
-				 BC_Zmax_Prtl=Position
+				 if(.not.restart) BC_Zmax_Prtl=Position
 				 BC_Zmax_Prtl_Type=Type
 			 end if 
 		 end if 
 	end subroutine SetBC_Prtl
 	
-	subroutine SetBC_InflowPrtl(Axis,Position,Side,InjSpeed,Flvr1,Flvr2,Density,Temperature1,Temperature2,SpeedDist1,SpeedDist2,DriftVelocity,DriftVmax,Vmax1,Vmax2)
+	subroutine SetBC_InflowPrtl(Axis,Position,Side,InjSpeed,Flvr1,Flvr2,Density,Temperature1,Temperature2,SpeedDist1,SpeedDist2,DriftVelocity,Vmax1,Vmax2)
 		character (len=*) :: Axis,Side
 		integer :: Flvr1,Flvr2
 		integer :: side_ind
 		real(psn)  :: Position
-		real(psn), optional :: DriftVmax !the maximum drift speed, helps improve the efficiency of prtl injection process
 		real(psn), optional :: Vmax1 !the maximum particle speed in the plasma frame for Flvr1, default is c 
 		real(psn), optional :: Vmax2 ! max. speed for Flvr2; Vmax1 and Vmax2 are only used when speed dist is provided
 		real(psn), optional :: InjSpeed
@@ -156,7 +155,7 @@ contains
 		if(present(SpeedDist1)) then 
 			InjPrtl(nInjPrtl)%dist_type1 = 2
 			InjPrtl(nInjPrtl)%SpeedDist1 => SpeedDist1
-			vmax = c 
+			vmax = 1.0 ! v/c 
 			if(present(Vmax1)) vmax = Vmax1
 			call InitPDFTable(InjPrtl(nInjPrtl)%TableSize,InjPrtl(nInjPrtl)%Table1,InjPrtl(nInjPrtl)%PDF_Table1,SpeedDist1,vmax)
 		end if 
@@ -164,13 +163,12 @@ contains
 		if(present(SpeedDist2)) then 
 			InjPrtl(nInjPrtl)%dist_type2 = 2
 			InjPrtl(nInjPrtl)%SpeedDist2 => SpeedDist2
-			vmax = c 
+			vmax = 1.0  
 			if(present(Vmax2)) vmax = Vmax2
 			call InitPDFTable(InjPrtl(nInjPrtl)%TableSize,InjPrtl(nInjPrtl)%Table2,InjPrtl(nInjPrtl)%PDF_Table2,SpeedDist2,vmax)
 		end if 
 			
-		InjPrtl(nInjPrtl)%vmax = c
-		if(present(DriftVmax)) InjPrtl(nInjPrtl)%vmax = DriftVmax
+
 		
 		InflowFld(side_ind)%Drift => DriftVelocity
 		
@@ -179,10 +177,11 @@ contains
 
 	end subroutine SetBC_InflowPrtl
 	
-	subroutine SetBC_InflowFld(Axis,Position,Side,InjSpeed,DriftVelocity,MagFld,Attenuate)
+	subroutine SetBC_InflowFld(Axis,Position,Side,InjSpeed,DriftVelocity,MagFld,DriftVmax,Attenuate)
 		character (len=*) :: Axis,Side
 		integer :: side_ind
 		real(psn)  :: Position
+		real(psn), optional :: DriftVmax !the maximum drift speed, helps improve the efficiency of prtl injection process
 		real(psn), optional :: Attenuate
 		real(psn), optional :: InjSpeed
 		
@@ -214,6 +213,9 @@ contains
 		
 		InflowFld(side_ind)%MagFld => MagFld
 		InflowFld(side_ind)%Drift => DriftVelocity
+		
+		InflowFld(side_ind)%vmax = 1.0
+		if(present(DriftVmax)) InflowFld(side_ind)%vmax = DriftVmax
 		
 		inflowBC_speed(side_ind) = 0
 		if(present(InjSpeed)) inflowBC_speed(side_ind) = InjSpeed
@@ -254,7 +256,7 @@ contains
 			case('open')
 			    call OpenBC_Fld_Left(BC_Xmin_Fld)
 			case('iflw')
-				call InflowBC_SetFld(InflowFld(1),1)		
+				call InflowBC_Fld(InflowFld(1),1)		
 	    end select
 		
 		
@@ -264,7 +266,7 @@ contains
 			case('open')
 			     call OpenBC_Fld_Right(BC_Xmax_Fld)
 			case('iflw')
-				call  InflowBC_SetFld(InflowFld(2),2)	    
+				call  InflowBC_Fld(InflowFld(2),2)	    
 		end select
 		
 		
@@ -272,7 +274,7 @@ contains
 			case('cond')
 				call CondBC_Fld_Bottom(BC_Ymin_Fld)
 			case('iflw')
-				call InflowBC_SetFld(InflowFld(3),3)		
+				call InflowBC_Fld(InflowFld(3),3)		
 	    end select
 		
 		
@@ -280,7 +282,7 @@ contains
 			case('cond')
 				call CondBC_Fld_Top(BC_Ymax_Fld)
 			case('iflw')
-				call InflowBC_SetFld(InflowFld(4),4)		
+				call InflowBC_Fld(InflowFld(4),4)		
 	    end select
 		
 		
@@ -302,7 +304,7 @@ contains
 !---------------------------------------------------------------------------------
 
 subroutine CondBC_Fld_Top(yind)
-	real(psn) :: yind
+	real(dbpsn) :: yind
 	integer :: yind_local
 	yind_local=ceiling(yind-yborders(procyind(proc))+3)
 	if(yind_local.gt.my) return
@@ -317,7 +319,7 @@ subroutine CondBC_Fld_Top(yind)
 end subroutine CondBC_Fld_Top
 
 subroutine CondBC_Fld_Bottom(yind)
-	real(psn) :: yind
+	real(dbpsn) :: yind
 	integer :: yind_local
 	yind_local=floor(yind-yborders(procyind(proc))+3)
 	if(yind_local.lt.1) return
@@ -332,7 +334,7 @@ subroutine CondBC_Fld_Bottom(yind)
 end subroutine CondBC_Fld_Bottom
 
 subroutine CondBC_Fld_Right(xind)
-	real(psn) :: xind
+	real(dbpsn) :: xind
 	integer :: xind_local
 	xind_local=ceiling(xind-xborders(procxind(proc))+3)
 	if(xind_local.gt.mx) return
@@ -342,14 +344,14 @@ subroutine CondBC_Fld_Right(xind)
 	Ez(xind_local:mx,:,:)=0.0_psn
 	
 #ifdef gpu
-    !call CondBC_Fld_Right_GPU(yind_local) ! not implemented yet
+    !call CondBC_Fld_Right_GPU(xind_local) ! not implemented yet
 #endif		
 end subroutine CondBC_Fld_Right
 
 subroutine CondBC_Fld_Left(xind)
-	real(psn) :: xind
+	real(dbpsn) :: xind
 	integer :: xind_local
-	xind_local=floor(xind-xborders(procxind(proc))+3)
+	xind_local=floor(xind-xborders(procxind(proc))+3) 
 	if(xind_local.lt.1) return
     xind_local = min(mx,xind_local)
 
@@ -357,12 +359,13 @@ subroutine CondBC_Fld_Left(xind)
 	Ez(1:xind_local,:,:)=0.0_psn
 
 #ifdef gpu
-    call CondBC_Fld_Bottom_GPU(yind_local)
+    call CondBC_Fld_Left_GPU(xind_local)
 #endif		
 end subroutine CondBC_Fld_Left
 
 subroutine RefBC_Prtl_Top(ymax)
-	real(psn) :: ymax, ymax_local
+	real(dbpsn) :: ymax
+	real(psn)  :: ymax_local
 	integer :: n,PrtlWall_local
 	
 	ymax_local=ymax-yborders(procyind(proc))+3
@@ -394,7 +397,8 @@ subroutine RefBC_Prtl_Top(ymax)
 	
 end subroutine RefBC_Prtl_Top
 subroutine RefBC_Prtl_Bottom(ymin)
-	real(psn) :: ymin,ymin_local
+	real(dbpsn) :: ymin
+	real(psn)   :: ymin_local
 	integer :: n,PrtlWall_local
 	
 	ymin_local=ymin-yborders(procyind(proc))+3
@@ -426,7 +430,8 @@ subroutine RefBC_Prtl_Bottom(ymin)
 end subroutine RefBC_Prtl_Bottom
 
 subroutine RefBC_Prtl_Right(xmax)
-	real(psn) :: xmax, xmax_local
+	real(dbpsn) :: xmax
+	real(psn)   :: xmax_local
 	integer :: n,PrtlWall_local
 	
 	xmax_local=xmax-xborders(procxind(proc))+3
@@ -459,15 +464,17 @@ subroutine RefBC_Prtl_Right(xmax)
 end subroutine RefBC_Prtl_Right
 
 subroutine RefBC_Prtl_Left(xmin)
-	real(psn) :: xmin,xmin_local
+	real(dbpsn) :: xmin
+	real(psn)   :: xmin_local
 	integer :: n,PrtlWall_local
 	
-	xmin_local=xmin-xborders(procxind(proc))+3
+	! in the new scheme prtl reflecting boundary is in the middle of a cell; this is to simply incorporate zero normal flux 
+	xmin_local=xmin-xborders(procxind(proc))+3 + 0.5  
     PrtlWall_local=xmin_local
 	
 #ifdef gpu
-    !call RefBC_Prtl_Left_GPU(ymin_local,PrtlWall_local) ! not implemented
-	!return
+    call RefBC_Prtl_Left_GPU(xmin_local,PrtlWall_local) ! not implemented
+	return
 #endif	
 		
 	if(xmin_local.gt.1) then 
@@ -481,12 +488,19 @@ subroutine RefBC_Prtl_Left(xmin)
 	
 
 	if(PrtlWall_local.ge.3.and.PrtlWall_local.le.mx-2) then
-		Jy(PrtlWall_local,:,:)=Jy(PrtlWall_local,:,:)+Jy(PrtlWall_local-1,:,:)
-	 	Jx(PrtlWall_local,:,:)=Jx(PrtlWall_local,:,:)-Jx(PrtlWall_local-1,:,:)
-	 	Jz(PrtlWall_local,:,:)=Jz(PrtlWall_local,:,:)+Jz(PrtlWall_local-1,:,:)
-		Jy(PrtlWall_local-1,:,:)=0.0_psn
-		Jx(PrtlWall_local-1,:,:)=0.0_psn
-		Jz(PrtlWall_local-1,:,:)=0.0_psn
+		
+		Jy(PrtlWall_local+1,:,:)=Jy(PrtlWall_local+1,:,:)+Jy(PrtlWall_local,:,:)
+	 	Jx(PrtlWall_local,:,:)=0
+	 	Jz(PrtlWall_local+1,:,:)=Jz(PrtlWall_local+1,:,:)+Jz(PrtlWall_local,:,:)
+		Jy(PrtlWall_local,:,:)=0.0_psn
+		Jz(PrtlWall_local,:,:)=0.0_psn
+		
+! 		Jy(PrtlWall_local,:,:)=Jy(PrtlWall_local,:,:)+Jy(PrtlWall_local-1,:,:)
+! 	 	Jx(PrtlWall_local,:,:)=Jx(PrtlWall_local,:,:)-Jx(PrtlWall_local-1,:,:)
+! 	 	Jz(PrtlWall_local,:,:)=Jz(PrtlWall_local,:,:)+Jz(PrtlWall_local-1,:,:)
+! 		Jy(PrtlWall_local-1,:,:)=0.0_psn
+! 		Jx(PrtlWall_local-1,:,:)=0.0_psn
+! 		Jz(PrtlWall_local-1,:,:)=0.0_psn
 	end if
 end subroutine RefBC_Prtl_Left
 	
@@ -496,7 +510,7 @@ end subroutine RefBC_Prtl_Left
 !  BC  for EM Fld
 !---------------------------------------------------------------------------------
 subroutine OpenBC_Fld_Right(xind)
-	real(psn) :: xind
+	real(dbpsn) :: xind
 	integer :: xind_local,i
 	xind_local=ceiling(xind-xborders(procxind(proc))+3)
 	if((xind_local.ge.1).and.(xind_local.le.mx-1)) then
@@ -527,7 +541,7 @@ subroutine OpenBC_Fld_Right(xind)
 end subroutine OpenBC_Fld_Right
 
 subroutine OpenBC_Fld_Left(xind)
-	real(psn) :: xind
+	real(dbpsn) :: xind
 	integer :: xind_local,i
 	xind_local=ceiling(xind-xborders(procxind(proc))+3)
 	if((xind_local.ge.2).and.(xind_local.le.mx)) then
@@ -563,7 +577,8 @@ end subroutine OpenBC_Fld_Left
 !---- Open Boundary condition
 !The following version works only for two species(ion + electron)
 subroutine OpenBC_Prtl_Right(xmax,dx)
-	real(psn) :: xmax, xmax_local, dx
+	real(dbpsn) :: xmax
+	real(psn)   ::  xmax_local, dx
 	integer :: n,count
 	
 	!real(psn), dimension(my,mz):: den1,vel1,den2,vel2 
@@ -623,7 +638,8 @@ subroutine OpenBC_Prtl_Right(xmax,dx)
 end subroutine OpenBC_Prtl_Right
 
 subroutine OpenBC_Prtl_Left(xmin,dx)
-	real(psn) :: xmin,xmin_local,dx
+	real(dbpsn) :: xmin
+	real(psn)   :: xmin_local,dx
 	integer :: n,count
 	!real(psn), dimension(my,mz):: den1,vel1,den2,vel2
 	real(psn), dimension(my,mz):: den,vel

@@ -12,8 +12,10 @@ module fields_gpu
 	implicit none
 contains 
 			
+	!---------------------------------------------------------------------
+	! Transfer Fld data to and from GPU
+	!---------------------------------------------------------------------
 	
-	! The Following subroutines are meant to transfer entire domain between GPU and CPU  
 	subroutine SendFullDomainEMFldtoGPU		
 		Ex_gpu=Ex; Ey_gpu=Ey; Ez_gpu=Ez
 		Bx_gpu=Bx; By_gpu=By; Bz_gpu=Bz
@@ -32,8 +34,30 @@ contains
 	subroutine RecvFullDomainCurrFromGPU
 		Jx=Jx_gpu; Jy=Jy_gpu; Jz=Jz_gpu
 	end subroutine RecvFullDomainCurrFromGPU
-		 		
 	
+	subroutine SendCurrToGPU(i1,i2,j1,j2,k1,k2)
+		integer :: i1,i2,j1,j2,k1,k2
+#ifdef twoD
+        k1=1; k2 = 1;
+#endif 
+        Jx_gpu(i1:i2,j1:j2,k1:k2) = Jx(i1:i2,j1:j2,k1:k2)
+		Jy_gpu(i1:i2,j1:j2,k1:k2) = Jy(i1:i2,j1:j2,k1:k2)
+		Jz_gpu(i1:i2,j1:j2,k1:k2) = Jz(i1:i2,j1:j2,k1:k2)
+	end subroutine SendCurrToGPU
+	
+	subroutine RecvCurrFromGPU(i1,i2,j1,j2,k1,k2)
+		integer :: i1,i2,j1,j2,k1,k2
+#ifdef twoD
+        k1=1; k2 = 1;
+#endif 
+        Jx(i1:i2,j1:j2,k1:k2) = Jx_gpu(i1:i2,j1:j2,k1:k2)
+		Jy(i1:i2,j1:j2,k1:k2) = Jy_gpu(i1:i2,j1:j2,k1:k2)
+		Jz(i1:i2,j1:j2,k1:k2) = Jz_gpu(i1:i2,j1:j2,k1:k2)
+	end subroutine RecvCurrFromGPU
+	
+
+	
+		
 	subroutine ResetCurrentGPU
 		 call ResetMatrixGPUKernel<<<grid,tBlock>>>(Jx_gpu,mx,my,mz)
 		 call ResetMatrixGPUKernel<<<grid,tBlock>>>(Jy_gpu,mx,my,mz)

@@ -40,8 +40,8 @@ subroutine HDF5writeINT3(fid,dspace_id,sizex,sizey,sizez,varname,var)
      data_dim(1)=sizex
      data_dim(2)=sizey
      data_dim(3)=sizez
-    call h5dcreate_f(fid,varname,H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
-    call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,var,data_dim,err)
+     call h5dcreate_f(fid,varname,H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,var,data_dim,err)
      call h5dclose_f(dset_id,err) 
 end subroutine HDF5writeINT3
 
@@ -75,6 +75,18 @@ subroutine WriteArrReal1(FileName,FileID,sizex,var,varname,extn)
      call h5sclose_f(dspace_id,err)     
      
 end subroutine WriteArrReal1
+
+subroutine HDF5writeRealDP(fid,dspace_id,varname,var)
+     INTEGER(HID_T)                 :: dspace_id,fid,dset_id 
+     INTEGER(HSIZE_T), dimension(1) :: data_dim1
+     character(len=*)               :: varname
+	 real(dbpsn)                    :: var
+     integer                        :: err
+     data_dim1(1)=1
+     call h5dcreate_f(fid,varname,H5T_NATIVE_DOUBLE,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_DOUBLE,var,data_dim1,err)
+     call h5dclose_f(dset_id,err) 
+end subroutine HDF5writeRealDP
 
 subroutine WriteArrReal1_DP(FileName,FileID,sizex,var,varname,extn) ! same as above, but in double precison 
      character(len=*), optional, intent(in) :: FileName

@@ -112,19 +112,20 @@ contains
 		integer :: j_ind
 								
 			
-			  n = blockDim%x * (blockIdx%x - 1) + threadIdx%x +(indi-1)
-			  if(n.gt.indf) return
+		   n = blockDim%x * (blockIdx%x - 1) + threadIdx%x +(indi-1)
+		   if(n.gt.indf) return
+		   if(qp(n).eq.0) return
 
-			  x0=xp(n)
-	          y0=yp(n)
-	          z0=zp(n)
+		   x0=xp(n)
+	       y0=yp(n)
+	       z0=zp(n)
 
-			 ! load q/m for each particles into a vector
-     	    if(flvp(n).eq.0) then ! if condition can possibly be removed by defining flvrqm(0)=0
+		  ! load q/m for each particles into a vector
+     	  if(flvp(n).eq.0) then ! if condition can possibly be removed by defining flvrqm(0)=0
 			  qm=0
-		    else
+		  else
   		      qm=flvrqm(flvp(n))*0.5 !for optimisation 0.5 is multiplied here itself
-		    end if
+		  end if
 
 			!interpolation
 		  i=x0

@@ -140,6 +140,9 @@ module var_gpu
 	integer, dimension(Nchunk_prtl_gpu) :: compact_chunk_offset_cpu		
 	integer            :: buff_size_prtl_gpu=chunk_size_prtl_gpu ! size of the arrays that temporarily hold prtls coming/leaving the sub-domain
 	
+	integer, parameter :: pcount_gpu_size = 64
+	integer, dimension(pcount_gpu_size), device :: pcount_gpu
+	
 	!-----------------------------------------------------------------------------------------------------
 	! Test Particles
 	!-----------------------------------------------------------------------------------------------------

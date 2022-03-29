@@ -5,6 +5,8 @@ module help_setup
      use memory
 	 use prob_dist
 	 use prtl_stats 
+	 use savedata
+	 use fields
      implicit none 
 	 real(psn), dimension(:), allocatable :: flvrqmTemp,FlvrChargeTemp
      integer, dimension(:), allocatable   :: FlvrSaveFldDataTemp, FlvrTypeTemp,FlvrSpareTemp,CurrentTagIDTemp,TagCounterTemp
@@ -61,7 +63,7 @@ contains
 		if(present(Temperature1)) then
 			call InitPrtlMomThermal(Flvr1,Temperature1,DriftVelocity1)
 		else if(present(SpeedDist1)) then
-			vmax=c
+			vmax=1.0_psn !v/c
 			if(present(Vmax1)) vmax = Vmax1
 			call InitPrtlMomNonThermal(Flvr1,SpeedDist1,DriftVelocity1,vmax,1)
 		end if 
@@ -69,7 +71,7 @@ contains
 		if(present(Temperature2)) then 
 			call InitPrtlMomThermal(Flvr2,Temperature2,DriftVelocity2)
 		else if(present(SpeedDist2)) then 
-			vmax=c
+			vmax=1.0_psn !v/c
 			if(present(Vmax2)) vmax = Vmax2
 			call InitPrtlMomNonThermal(Flvr2,SpeedDist2,DriftVelocity2,vmax,1)
 		end if 
@@ -82,6 +84,29 @@ contains
 		real(psn) :: x,y,z,vx,vy,vz
 		vx=0.0_psn;vy=0.0_psn; vz=0.0_psn;
 	end subroutine NoDrift
+!---------------------------------------------------------------------------------
+!  Set Load Balancing Type. The loadbalancing scheme is applied (loadbalance.F90) based on the type
+!---------------------------------------------------------------------------------	
+    subroutine SetLoadBalancing(Type)
+		character (len=*) :: Type
+		if(Type.eq.'shock') load_balancing_type = 1 ! 1 = shock
+	end subroutine SetLoadBalancing
+
+!---------------------------------------------------------------------------------
+!  Set an external current source as subroutine defined in the setup file
+!---------------------------------------------------------------------------------	
+	subroutine SetExternalCurrent(J)
+		interface 
+			subroutine J(x,y,z,fx,fy,fz)
+				import :: psn
+				real(psn) :: x,y,z,fx,fy,fz
+			end subroutine
+		end interface
+		
+		ext_current_present = .true.
+		J_ext => J
+	end subroutine SetExternalCurrent		
+	
 !---------------------------------------------------------------------------------
 !  subroutines to initialise Electric and Magnetic field
 !---------------------------------------------------------------------------------		
@@ -910,100 +935,7 @@ subroutine GetGlobalPosition_DP(xlocal,ylocal,zlocal,xglobal,yglobal,zglobal)
 end subroutine GetGlobalPosition_DP
 
 
-!--------------------------------------------------------------------------------------------
-!
-!        Some Auxiliary Subroutines useful for the shock problem 
-!
-!--------------------------------------------------------------------------------------------
 
-!the following subroutines tries to find the current location of the shock by following total magnetic energy vs. x 
-subroutine FindShockXpos_BmagPeak(Xshock)
-	implicit none 
-	integer :: Xshock
-    integer :: i,j,k,i1,j1,k1
-	integer :: xpeak
-	real(psn) :: mag_peak
-    real(psn), dimension(mx) :: mag1D_slice,mag1D_this_proc
-	real(psn), dimension(0:nproc-1) :: mag_peak_all_proc
-	integer, dimension(0:nproc-1)   :: xpeak_all_proc
-    integer, dimension(MPI_STATUS_SIZE) :: mpi_stat 
-	integer :: mpi_err
-	!first compute the local peak and its location 	
-	
-	mag1D_this_proc=0
-    do i=3,mx-3    
-#ifndef twoD 
-          do k=3,mz-3
-#else
-          do k=1,1
-#endif
-                do j=3,my-3
-                    mag1D_this_proc(i)=mag1D_this_proc(i)+(Bx(i,j,k)**2+By(i,j,k)**2+Bz(i,j,k)**2)
-                end do
-          end do
-	 end do	
-	 
-	 !now communicate with all relevant proc to get the global sum in Y-Z plane
-	 i1=procxind(proc)
-	 j1=procyind(proc)
-	 k1=proczind(proc)
-	 mag1D_slice=0.0_psn
-	 if(j1.eq.0.and.k1.eq.0) then !first reduce all local 1D array one one proc.
-		 mag1D_slice=mag1D_this_proc
-#ifdef twoD
-         do k=0,0
-#else          		 
-		 do k=0,nSubDomainsZ-1
-#endif
-			 do j=0,nSubDomainsY-1
-				 if(j.eq.0.and.k.eq.0) cycle
-				     call MPI_RECV(mag1D_this_proc,mx,mpi_psn,proc_grid(i1,j,k),0,MPI_COMM_WORLD,mpi_stat,mpi_err)
-					 mag1D_slice=mag1D_slice+mag1D_this_proc ! the local array is used as recv buffer
-			 end do
-		 end do
-	 else
-		 call MPI_SEND(mag1D_this_proc,mx,mpi_psn,proc_grid(i1,0,0),0,MPI_COMM_WORLD,mpi_err)
-	 end if
-	 
-	 
-	 if(j1.eq.0.and.k1.eq.0) then !now send the reduced array to all proc. working on this YZ slice
-#ifdef twoD 		 
-		 do k=0,0
-#else
-         do k=0,nSubDomainsZ-1
-#endif 
-			 do j=0,nSubDomainsY-1
-				 if(j.eq.0.and.k.eq.0) cycle
-				     call MPI_SEND(mag1D_slice,mx,mpi_psn,proc_grid(i1,j,k),0,MPI_COMM_WORLD,mpi_err)
-			 end do
-		 end do
-	 else
-		 call MPI_RECV(mag1D_slice,mx,mpi_psn,proc_grid(i1,0,0),0,MPI_COMM_WORLD,mpi_stat,mpi_err)
-	 end if
-
-
-	 !Compute the local peak and the index corresponding to the peak
-     mag_peak=0.0_psn
-	 xpeak=0
-	 do i=3,mx-3
-	     if(mag1D_slice(i).gt.mag_peak) then
-		     mag_peak=mag1D_slice(i)
-		     xpeak=i+xborders(procxind(proc))-3
-	      end if
-	 end do
-
-	 !Now communicate the local location of the magentic peak and find the global peak
-     call MPI_ALLGATHER(mag_peak,1,mpi_psn,mag_peak_all_proc,1,mpi_psn,MPI_COMM_WORLD,mpi_err)
-     call MPI_ALLGATHER(xpeak,1,MPI_INTEGER,xpeak_all_proc,1,MPI_INTEGER,MPI_COMM_WORLD,mpi_err)
-
-	 mag_peak=0.0_psn
-	 do i=0,nproc-1 !compute the global peak
-		 if(mag_peak_all_proc(i).gt.mag_peak) then
-			 mag_peak=mag_peak_all_proc(i)
-			 Xshock=xpeak_all_proc(i)
-		 end if
-	 end do
-end subroutine FindShockXPos_BmagPeak 
 
 
 ! Older subroutines : Not in Use

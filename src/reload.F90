@@ -2,7 +2,7 @@ module reload
      use parameters
      use vars
      use hdf5
-	 INTEGER(HID_T) :: h5real_psn
+	 INTEGER(HID_T) :: h5real_psn, h5real_dbpsn
 contains 
 	
      subroutine CheckRestart
@@ -33,6 +33,8 @@ contains
 		 write(str2,'(I0)') proc
 		 
 		 call h5open_f(err)
+		 
+		 call h5tcopy_f(H5T_NATIVE_DOUBLE,h5real_dbpsn,err)
          select case(psn)
          case(kind(1.0d0))
             call h5tcopy_f(H5T_NATIVE_DOUBLE,h5real_psn,err)
@@ -40,6 +42,7 @@ contains
             call h5tcopy_f(H5T_NATIVE_REAL,h5real_psn,err)
          end select
 		 call h5close_f(err)
+		 
 		 tstart=restart_time+1
 		 
 	 end subroutine InitRestart
@@ -119,11 +122,14 @@ contains
           call h5dread_f(dset_id,H5T_NATIVE_INTEGER,Nflvr,data_dim1,err)
           call h5dclose_f(dset_id,err) 
 		  
-          allocate(flvrqm(Nflvr),FlvrSaveFldData(Nflvr),FlvrType(Nflvr),FlvrSpare(Nflvr))
+          allocate(flvrqm(Nflvr),FlvrCharge(Nflvr),FlvrSaveFldData(Nflvr),FlvrType(Nflvr),FlvrSpare(Nflvr))
           allocate(CurrentTagID(Nflvr),TagCounter(Nflvr))
           data_dim1(1)=Nflvr
           call h5dopen_f(fid,'flvrqm', dset_id, err)
           call h5dread_f(dset_id,h5real_psn,flvrqm,data_dim1,err)
+          call h5dclose_f(dset_id,err) 
+          call h5dopen_f(fid,'FlvrCharge', dset_id, err)
+          call h5dread_f(dset_id,h5real_psn,FlvrCharge,data_dim1,err)
           call h5dclose_f(dset_id,err) 
           call h5dopen_f(fid,'FlvrSaveFldData', dset_id, err)
           call h5dread_f(dset_id,h5real_psn,FlvrSaveFldData,data_dim1,err)
@@ -223,6 +229,21 @@ contains
 		 call HDF5readINT(fid,'fdatazi_box',fdatazi_box)
 		 call HDF5readINT(fid,'fdatazf_box',fdatazf_box)
 		 
+		 call HDF5readINT(fid,'load_balancing_type',load_balancing_type)
+		 
+		 call HDF5readRealDP(fid,'BC_Xmin_Prtl',BC_Xmin_Prtl)
+		 call HDF5readRealDP(fid,'BC_Xmax_Prtl',BC_Xmax_Prtl)
+		 call HDF5readRealDP(fid,'BC_Ymin_Prtl',BC_Ymin_Prtl)
+		 call HDF5readRealDP(fid,'BC_Ymax_Prtl',BC_Ymax_Prtl)
+		 call HDF5readRealDP(fid,'BC_Zmin_Prtl',BC_Zmin_Prtl)
+		 call HDF5readRealDP(fid,'BC_Zmax_Prtl',BC_Zmax_Prtl)
+		 call HDF5readRealDP(fid,'BC_Xmin_Fld',BC_Xmin_Fld)
+		 call HDF5readRealDP(fid,'BC_Xmax_Fld',BC_Xmax_Fld)
+		 call HDF5readRealDP(fid,'BC_Ymin_Fld',BC_Ymin_Fld)
+		 call HDF5readRealDP(fid,'BC_Ymax_Fld',BC_Ymax_Fld)
+		 call HDF5readRealDP(fid,'BC_Zmin_Fld',BC_Zmin_Fld)
+		 call HDF5readRealDP(fid,'BC_Zmax_Fld',BC_Zmax_Fld)
+		 
 	     data_dim3(1)=nSubDomainsX
 	     data_dim3(2)=nSubDomainsY
 		 data_dim3(3)=nSubDomainsZthis
@@ -286,4 +307,16 @@ contains
 	      call h5dread_f(dset_id,h5real_psn,var,data_dim1,err)
 	      call h5dclose_f(dset_id,err) 
 	 end subroutine HDF5readReal
+	 
+	 subroutine HDF5readRealDP(fid,varname,var)
+	      INTEGER(HID_T)                 :: fid,dset_id 
+	      INTEGER(HSIZE_T), dimension(1) :: data_dim1
+	      character(len=*)               :: varname
+		  real(dbpsn)                    :: var
+	      integer                        :: err
+	      data_dim1(1)=1
+		  call h5dopen_f(fid,varname, dset_id, err)
+	      call h5dread_f(dset_id,h5real_dbpsn,var,data_dim1,err)
+	      call h5dclose_f(dset_id,err) 
+	 end subroutine HDF5readRealDP
 end module reload

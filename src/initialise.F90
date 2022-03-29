@@ -433,11 +433,15 @@ subroutine InitPrtlTransferInOutArr
 #endif	
 end subroutine InitPrtlTransferInOutArr
 
-
+!---------------------------------------------------------
+! Enforce the boundary conditions defined in the setup file
+!---------------------------------------------------------
 subroutine ComplyBC 
 		  integer :: n 
 		  real(psn) :: xmax_global,xmin_global,ymin_global,ymax_global,zmin_global,zmax_global
 		  real(psn) :: xmax_local,xmin_local,ymin_local,ymax_local,zmin_local,zmax_local
+
+		  !----------  Particles --------------!
 		  
 		  xmax_global=BC_Xmax_Prtl
 		  xmin_global=BC_Xmin_Prtl
@@ -481,7 +485,29 @@ subroutine ComplyBC
 			   end if
 		  end do 
 		  
+		  !----------  Fields --------------!
+		  if(BC_Xmin_Fld_Type.eq.'cond') call SetFldPairToZero(Ey,Ez,1, int(BC_Xmin_Fld)-xborders(procxind(proc))+3, 1,my, 1,mz)
+		  
 end subroutine ComplyBC
+
+subroutine SetFldPairToZero(Fld1,Fld2,i1,i2,j1,j2,k1,k2)
+	real(psn), dimension(mx,my,mz) :: Fld1,Fld2
+	integer :: i1,i2,j1,j2,k1,k2
+	integer :: i,j,k
+	
+	if(i1.gt.mx .or. i2.lt.1) return
+	if(j1.gt.my .or. j2.lt.1) return
+	if(k1.gt.mz .or. k2.lt.1) return
+	
+	do k = max(k1,1),min(k2,mz)
+		do j = max(j1,1),min(j2,my)
+			do i = max(i1,1),min(i2,mx)
+				Fld1(i,j,k) = 0.0_psn
+				Fld2(i,j,k) = 0.0_psn
+			end do 
+		end do 
+	end do
+end subroutine SetFldPairToZero
 
 
 
@@ -493,24 +519,23 @@ subroutine InitRandomNumberSeed
      real(kind=8) :: r1
      integer :: i, clock
 	 
-	 clock=0
 	 !call system_clock(clock)
      call random_seed(SIZE=seed_size)
      allocate(seed_arr(seed_size))
-     do i=1,seed_size
-         seed_arr(i)=19*proc+i*207 + clock
+	 
+	 seed_arr(1) = 2930
+     do i=2,seed_size
+         seed_arr(i)= mod( 19*seed_arr(i-1) + 7*proc + 3457, 11399 )
      end do
      call random_seed(PUT=seed_arr)
      call random_number(r1)
-     do i=1,int(1520*r1)
-         call random_number(r1)
-     end do
-     seed_arr=0
-     do i=1,seed_size
-         seed_arr(i)=seed_arr(i)+int(100000000*r1)
-          call random_number(r1)
-     end do
-    call random_seed(PUT=seed_arr)
+    
+	 
+	 do i=1,1000
+		 call random_number(r1)
+	 end do
+	 
+!     call random_seed(PUT=seed_arr)
      
 end subroutine InitRandomNumberSeed
 

@@ -132,8 +132,8 @@ module vars
      !varaibles to set boundary conditions for field and particles
      !------------------------------------------------------- 
 	 logical :: inflowBC = .false.
-     real(psn) :: BC_Xmin_Prtl, BC_Xmax_Prtl, BC_Ymin_Prtl, BC_Ymax_Prtl, BC_Zmin_Prtl, BC_Zmax_Prtl
-	 real(psn)   :: BC_Xmin_Fld, BC_Xmax_Fld, BC_Ymin_Fld, BC_Ymax_Fld, BC_Zmin_Fld, BC_Zmax_Fld
+     real(dbpsn) :: BC_Xmin_Prtl, BC_Xmax_Prtl, BC_Ymin_Prtl, BC_Ymax_Prtl, BC_Zmin_Prtl, BC_Zmax_Prtl
+	 real(dbpsn)   :: BC_Xmin_Fld, BC_Xmax_Fld, BC_Ymin_Fld, BC_Ymax_Fld, BC_Zmin_Fld, BC_Zmax_Fld
 	 character (len=4) :: BC_Xmin_Fld_Type, BC_Xmax_Fld_Type, BC_Ymin_Fld_Type, BC_Ymax_Fld_Type, BC_Zmin_Fld_Type, BC_Zmax_Fld_Type
 	 character (len=4) :: BC_Xmin_Prtl_Type, BC_Xmax_Prtl_Type, BC_Ymin_Prtl_Type, BC_Ymax_Prtl_Type, BC_Zmin_Prtl_Type, BC_Zmax_Prtl_Type
      !----------------------------------------------------------
@@ -181,6 +181,11 @@ module vars
      !----------------------------------------------------------------
      real(kind=8),dimension(50) :: exec_time 
      
+     !----------------------------------------------------------
+     !variable used for load balancing
+     !----------------------------------------------------------
+	 integer :: load_balancing_type = 0
+	 
      !----------------------------------------------------------------
      !some auxiliary variables 
      !----------------------------------------------------------------
