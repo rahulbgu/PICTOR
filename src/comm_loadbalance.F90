@@ -21,7 +21,7 @@ contains
           integer :: fromproc,ledge,redge,tag
           integer :: mx_new,my_new,mz_new
           real(psn), dimension(mx_new,my_new,mz_new) :: Fld
-          integer, dimension(MPI_STATUS_SIZE) :: stat
+          type(MPI_Status) :: stat  
           integer :: mpi_err
           call MPI_RECV(Fld(ledge:redge,:,:),(redge-ledge+1)*my*mz,mpi_psn,fromproc,tag,MPI_COMM_WORLD,stat,mpi_err)
      end subroutine RecvFldFromOldProcX
@@ -35,7 +35,7 @@ contains
           integer :: fromproc,bedge,tedge,tag
           integer :: mx_new,my_new,mz_new
           real(psn), dimension(mx_new,my_new,mz_new) :: Fld
-          integer, dimension(MPI_STATUS_SIZE) :: stat
+          type(MPI_Status) :: stat  
           integer :: mpi_err
           call MPI_RECV(Fld(:,bedge:tedge,:),(tedge-bedge+1)*mx*mz,mpi_psn,fromproc,tag,MPI_COMM_WORLD,stat,mpi_err)
      end subroutine RecvFldFromOldProcY
@@ -46,7 +46,7 @@ contains
      end subroutine SendPrtlSizeToNewProc
      subroutine RecvPrtlSizeFromOldProc(proc_no,size)
           integer :: proc_no,size
-          integer, dimension(MPI_STATUS_SIZE) :: stat  
+          type(MPI_Status) :: stat    
           integer :: mpi_err   
           call MPI_RECV(size,1,MPI_INTEGER,proc_no,1,MPI_COMM_WORLD,stat,mpi_err)
      end subroutine RecvPrtlSizeFromOldProc
@@ -60,7 +60,7 @@ contains
 	 subroutine RecvPrtlFromOldProc(proc_no,indf,pcount,p1,arr_dim,xshift,yshift)
           integer :: proc_no,indf,pcount,arr_dim,xshift,yshift,n
           type(particle), dimension(arr_dim) :: p1
-          integer, dimension(MPI_STATUS_SIZE) :: stat     
+          type(MPI_Status) :: stat       
           integer :: mpi_err
 		  
           call MPI_RECV(p1(1:indf),pcount,mpi_prtltype,proc_no,0,MPI_COMM_WORLD,stat,mpi_err)
@@ -75,7 +75,7 @@ contains
 ! 	 subroutine RecvPrtlFromOldProc(proc_no,indf,pcount,p1,arr_dim,xshift,yshift)
 !           integer :: proc_no,indf,pcount,arr_dim,xshift,yshift,n
 !           type(particle), dimension(arr_dim) :: p1
-!           integer, dimension(MPI_STATUS_SIZE) :: stat
+!           type(MPI_Status) :: stat  
 !           integer :: mpi_err
 ! 		  integer :: InsertAt,LastCallStep
 ! 		  save InsertAt,LastCallStep
@@ -99,7 +99,7 @@ contains
      subroutine RecvTestPrtlFromOldProc(proc_no,indf,pcount,p1,arr_dim,xshift,yshift)
           integer :: proc_no,indf,pcount,arr_dim,xshift,yshift,n
           type(particle), dimension(arr_dim) :: p1
-          integer, dimension(MPI_STATUS_SIZE) :: stat     
+          type(MPI_Status) :: stat       
           integer :: mpi_err
 		  integer :: InsertAt,LastCallStep 
 		  save InsertAt,LastCallStep 

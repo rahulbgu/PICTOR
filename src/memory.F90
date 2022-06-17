@@ -1,7 +1,11 @@
 module memory
      use parameters
      use vars
+	 use prtl_tag
+	 use prob_dist
      implicit none 
+	 real(psn), dimension(:), allocatable :: flvrqmTemp,FlvrChargeTemp
+     integer, dimension(:), allocatable   :: FlvrSaveFldDataTemp, FlvrTypeTemp,FlvrSaveRatioTemp,CurrentTagIDTemp
      
 contains 
      recursive subroutine DeletePrtl(n) !free the slot of particle at i if particle is leaving this proc
@@ -31,33 +35,6 @@ contains
 					var1tp(n)=0.0_psn
      end subroutine DeleteTestPrtl 
 	 
-	 subroutine GetUsedPrtlIndex(ind)
-	 	integer :: ind,n 
-	 	ind=0
-	 	do n=1,prtl_arr_size
-	 		if(qp(n).ne.0) ind=n
-	 	end do 
-	 end subroutine GetUsedPrtlIndex
-	 
- 	subroutine CopyPrtlPos(NewFlvr,SourceFlvr)
- 		integer :: NewFlvr,SourceFlvr
- 		real(psn) :: ch
- 		integer   :: n,off, count
-		
- 		call GetUsedPrtlIndex(off)
-		count=0
-		do n=initialised_prtl_ind+1,prtl_arr_size ! count no. of particles to be copied
-			if((qp(n).ne.0).and.(flvp(n).eq.SourceFlvr)) count=count+1
-		end do
-		if(off+count.gt.prtl_arr_size) call ReshapePrtlArr(new_size=int(1.1*(off+count)),used_ind=off) !enlarge prtl arr if needed
-		
- 		do n=initialised_prtl_ind+1,prtl_arr_size
- 			if((qp(n).ne.0).and.(flvp(n).eq.SourceFlvr)) then 
- 			   call InsertParticleAt(off+1,xp(n),yp(n),zp(n),0.0_psn,0.0_psn,0.0_psn,FlvrCharge(NewFlvr),0,NewFlvr,0.0_psn)
- 			   off=off+1
- 		    end if 
- 		end do 
- 	end subroutine CopyPrtlPos
 	 
 	recursive subroutine LoadPrtl(p,size,n,m)
 	 	integer :: size,n,m 
@@ -396,7 +373,6 @@ contains
           call move_alloc(var1p_temp,var1p)
 		  
 		  used_prtl_arr_size=np_cpu!update the actual size of occupied part of prtl array  
-		  prtl_random_insert_index=np_cpu+1
 end subroutine ReorderPrtlArr
 
 
@@ -489,7 +465,6 @@ subroutine ReorderTestPrtlArr
           call move_alloc(flvp_temp,flvtp)
           call move_alloc(var1p_temp,var1tp)
 		  used_test_prtl_arr_size=ntp_cpu !update the actual size of occupied part of prtl array  
-		  test_prtl_random_insert_index=ntp_cpu+1
 		  
 end subroutine ReorderTestPrtlArr
 
@@ -514,7 +489,6 @@ subroutine InitPrtlArr(size)
   
     qp=0
     used_prtl_arr_size=0
-    prtl_random_insert_index=1
     np=0 
 end subroutine InitPrtlArr 
 
@@ -544,5 +518,85 @@ integer function EstimatePrtlCount(Den,Nuniform)
     EstimatePrtlCount = int(1.1*Nuniform*(count/10000.0)) + 1000000
 		
 end function EstimatePrtlCount
+
+
+subroutine SetQbyM(ind,value) ! Update this soubroutine such that the Flvrs can be added in any order, no incremently 
+     integer :: ind
+     real(psn) :: value 
+     if(ind.gt.Nflvr) then 
+          allocate(flvrqmTemp(ind),FlvrChargeTemp(ind),FlvrSaveFldDataTemp(ind),FlvrTypeTemp(ind),FlvrSaveRatioTemp(ind),CurrentTagIDTemp(ind))
+          flvrqmTemp(1:Nflvr)=flvrqm(1:Nflvr)
+	      FlvrChargeTemp(1:NFlvr)=FlvrCharge(1:Nflvr)
+          FlvrSaveFldDataTemp(1:Nflvr)=FlvrSaveFldData(1:Nflvr)     
+          FlvrTypeTemp(1:Nflvr)=FlvrType(1:Nflvr)
+          FlvrSaveRatioTemp(1:Nflvr)=FlvrSaveRatio(1:Nflvr)
+          CurrentTagIDTemp(1:Nflvr)=CurrentTagID(1:Nflvr)
+	   
+          deallocate(flvrqm,FlvrCharge,FlvrSaveFldData,FlvrType,FlvrSaveRatio,CurrentTagID)
+          call move_alloc(flvrqmTemp,flvrqm)
+	      call move_alloc(FlvrChargeTemp,FlvrCharge)
+          call move_alloc(FlvrSaveFldDataTemp,FlvrSaveFldData)
+          call move_alloc(FlvrTypeTemp,FlvrType)
+          call move_alloc(FlvrSaveRatioTemp,FlvrSaveRatio)
+          call move_alloc(CurrentTagIDTemp,CurrentTagID)
+          Nflvr=Nflvr+1
+      end if
+          flvrqm(ind)=value
+end subroutine SetQbyM
+
+
+subroutine SetPhaseSpaceProperty(psp,Flvr,Density,Temperature,SpeedDist,Vmax,DriftVelocity)
+	type(PhaseSpaceProperty) :: psp
+	integer :: Flvr
+	procedure(scalar_global), optional :: Density
+	procedure(scalar_global), optional :: Temperature
+	procedure(func1D),        optional :: SpeedDist
+	procedure(vector_global), optional :: DriftVelocity  
+	real(psn), optional :: Vmax !the maximum particle speed in the plasma frame, default is c 
+	
+	psp%Flvr = Flvr
+	if(present(Density))       psp%Density => Density 
+	if(present(Temperature))   psp%Temperature => Temperature 
+	if(present(DriftVelocity)) psp%DriftVelocity => DriftVelocity  
+	
+	psp%Vmax = 1.0_psn
+	if(present(Vmax)) psp%Vmax = Vmax  
+	
+	if(present(SpeedDist)) then 
+		psp%SpeedDist => SpeedDist
+		allocate( psp%Table(PDF_TableSize), psp%PDF_Table(PDF_TableSize) )
+		call InitPDFTable(PDF_TableSize, psp%Table, psp%PDF_Table, psp%SpeedDist, psp%Vmax)
+	end if 
+	
+end subroutine SetPhaseSpaceProperty 
+
+
+subroutine InsertPrtl_PSP(pid,xglobal,yglobal,zglobal,xlocal,ylocal,zlocal)
+	integer, dimension(:) :: pid
+	real(dbpsn) :: xglobal, yglobal, zglobal
+	real(psn) :: xlocal, ylocal, zlocal, ugamma, vgamma, wgamma , vdx, vdy, vdz
+	real(psn) :: Temp
+	integer :: tag, i
+     
+	do i=1,size(pid)
+		 if( associated( PSP_list(pid(i))%Temperature)) then 
+			 Temp= PSP_list(pid(i))%Temperature(xglobal,yglobal,zglobal)
+			 call GetVelGamma_MaxBolt(Temp,ugamma,vgamma,wgamma)
+		 else if( associated( PSP_list(pid(i))%SpeedDist)) then 
+			 call GetIsoVelGammaTable(PDF_TableSize, PSP_list(pid(i))%Table, PSP_list(pid(i))%PDF_Table,ugamma,vgamma,wgamma) 
+	     end if
+ 
+		 if( associated( PSP_list(pid(i))%DriftVelocity)) then 
+			 call  PSP_list(pid(i))%DriftVelocity(xglobal,yglobal,zglobal,vdx,vdy,vdz)
+			 call AddDriftVel(ugamma,vgamma,wgamma,vdx,vdy,vdz)
+		 end if   
+		 tag = GetTag( PSP_list(pid(i))%Flvr)
+	 
+		 call InsertParticleAt(used_prtl_arr_size+1,xlocal,ylocal,zlocal,ugamma,vgamma,wgamma,FlvrCharge( PSP_list(pid(i))%Flvr),tag, PSP_list(pid(i))%Flvr,0.0_psn)
+		 used_prtl_arr_size=used_prtl_arr_size+1
+		 np=np+1
+    end do 
+
+end subroutine InsertPrtl_PSP
 
 end module memory 

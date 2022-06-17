@@ -91,26 +91,26 @@ contains
 		 end if 
 	end subroutine SetBC_Prtl
 	
-	subroutine SetBC_InflowPrtl(Axis,Position,Side,InjSpeed,Flvr1,Flvr2,Density,Temperature1,Temperature2,SpeedDist1,SpeedDist2,DriftVelocity,Vmax1,Vmax2)
+	subroutine SetBC_InflowPrtl(Axis,Position,Side,InjSpeed,Flvr1,Flvr2,Density,Temperature1,Temperature2,SpeedDist1,SpeedDist2,DriftVelocity,Vmax1,Vmax2,pid)
 		character (len=*) :: Axis,Side
-		integer :: Flvr1,Flvr2
+		integer, optional :: Flvr1,Flvr2
 		integer :: side_ind
 		real(psn)  :: Position
 		real(psn), optional :: Vmax1 !the maximum particle speed in the plasma frame for Flvr1, default is c 
 		real(psn), optional :: Vmax2 ! max. speed for Flvr2; Vmax1 and Vmax2 are only used when speed dist is provided
 		real(psn), optional :: InjSpeed
-		real(psn), external, optional :: Temperature1
-		real(psn), external, optional :: Temperature2
-		real(psn), external, optional :: SpeedDist1
-		real(psn), external, optional :: SpeedDist2
-		real(psn), external  :: Density 
+		procedure(scalar_global), optional :: Temperature1
+		procedure(scalar_global), optional :: Temperature2
+		procedure(func1D),        optional :: SpeedDist1
+		procedure(func1D),        optional :: SpeedDist2
+		procedure(scalar_global)           :: Density 
+		procedure(vector_global)           :: DriftVelocity
 		real(psn) :: vmax
-		interface 
-			subroutine DriftVelocity(x,y,z,fx,fy,fz)
-				import :: psn
-				real(psn) :: x,y,z,fx,fy,fz
-			end subroutine
-	    end interface 
+		
+		integer, dimension(:), optional :: pid
+		integer, dimension(:), allocatable :: pid_this
+		integer :: n, i1, i2
+
 		
 		inflowBC = .true.
 		
@@ -135,45 +135,44 @@ contains
 		
 		nInjPrtl = nInjPrtl + 1
 		
-		InjPrtl(nInjPrtl)%side  = side_ind
-		InjPrtl(nInjPrtl)%flvr1 = Flvr1 
-		InjPrtl(nInjPrtl)%flvr2 = Flvr2 
-		
+		InjPrtl(nInjPrtl)%side  = side_ind		
 		InjPrtl(nInjPrtl)%Den => Density
 		InjPrtl(nInjPrtl)%Drift => DriftVelocity
 		
-		if(present(Temperature1)) then 
-			InjPrtl(nInjPrtl)%dist_type1 = 1
-			InjPrtl(nInjPrtl)%Temp1 => Temperature1
+		if(present(Flvr1)) then 
+			allocate(InjPrtl(nInjPrtl)%pid(1))
+			used_PSP_list_size = used_PSP_list_size +1
+			i1 = used_PSP_list_size
+			call SetPhaseSpaceProperty(PSP_list(i1), Flvr1,Density,Temperature1,SpeedDist1,Vmax1,DriftVelocity)
+			InjPrtl(nInjPrtl)%pid = (/ i1/)
 		end if 
 		
-		if(present(Temperature2)) then 
-			InjPrtl(nInjPrtl)%dist_type2 = 1
-			InjPrtl(nInjPrtl)%Temp2 => Temperature2
+		if(present(Flvr2)) then 
+			if(allocated(InjPrtl(nInjPrtl)%pid)) deallocate(InjPrtl(nInjPrtl)%pid)
+			allocate(InjPrtl(nInjPrtl)%pid(2))
+			used_PSP_list_size = used_PSP_list_size +1
+			i2 = used_PSP_list_size
+			call SetPhaseSpaceProperty(PSP_list(i2), Flvr2,Density,Temperature2,SpeedDist2,Vmax2,DriftVelocity)
+			InjPrtl(nInjPrtl)%pid = (/ i1, i2 /)
 		end if 
 		
-		if(present(SpeedDist1)) then 
-			InjPrtl(nInjPrtl)%dist_type1 = 2
-			InjPrtl(nInjPrtl)%SpeedDist1 => SpeedDist1
-			vmax = 1.0 ! v/c 
-			if(present(Vmax1)) vmax = Vmax1
-			call InitPDFTable(InjPrtl(nInjPrtl)%TableSize,InjPrtl(nInjPrtl)%Table1,InjPrtl(nInjPrtl)%PDF_Table1,SpeedDist1,vmax)
-		end if 
+		if(present(pid)) then 
+			if(allocated(InjPrtl(nInjPrtl)%pid)) deallocate(InjPrtl(nInjPrtl)%pid)
+			allocate(InjPrtl(nInjPrtl)%pid(size(pid)))
+			do n=1,size(pid)
+				InjPrtl(nInjPrtl)%pid(n) = pid(n)
+			end do
+		end if
 		
-		if(present(SpeedDist2)) then 
-			InjPrtl(nInjPrtl)%dist_type2 = 2
-			InjPrtl(nInjPrtl)%SpeedDist2 => SpeedDist2
-			vmax = 1.0  
-			if(present(Vmax2)) vmax = Vmax2
-			call InitPDFTable(InjPrtl(nInjPrtl)%TableSize,InjPrtl(nInjPrtl)%Table2,InjPrtl(nInjPrtl)%PDF_Table2,SpeedDist2,vmax)
-		end if 
-			
+		
 
-		
+				
 		InflowFld(side_ind)%Drift => DriftVelocity
 		
-		inflowBC_speed(side_ind) = 0
-		if(present(InjSpeed)) inflowBC_speed(side_ind) = InjSpeed
+		if(.not.restart) then 
+			inflowBC_speed(side_ind) = 0
+			if(present(InjSpeed)) inflowBC_speed(side_ind) = InjSpeed
+		end if
 
 	end subroutine SetBC_InflowPrtl
 	
@@ -187,12 +186,14 @@ contains
 		
 		interface 
 			subroutine MagFld(x,y,z,fx,fy,fz)
-				import :: psn
-				real(psn) :: x,y,z,fx,fy,fz
+				import :: psn, dbpsn
+				real(dbpsn)  :: x,y,z
+				real(psn)    :: fx,fy,fz
 			end subroutine
 			subroutine DriftVelocity(x,y,z,fx,fy,fz)
-				import :: psn
-				real(psn) :: x,y,z,fx,fy,fz
+				import :: psn, dbpsn
+				real(dbpsn) :: x,y,z
+				real(psn)   :: fx,fy,fz
 			end subroutine
 	    end interface
 		
@@ -217,8 +218,10 @@ contains
 		InflowFld(side_ind)%vmax = 1.0
 		if(present(DriftVmax)) InflowFld(side_ind)%vmax = DriftVmax
 		
-		inflowBC_speed(side_ind) = 0
-		if(present(InjSpeed)) inflowBC_speed(side_ind) = InjSpeed
+		if(.not.restart) then 
+			inflowBC_speed(side_ind) = 0
+			if(present(InjSpeed)) inflowBC_speed(side_ind) = InjSpeed
+	    end if 
 		
 		InflowFld(side_ind)%Attenuate = 0 
 		if(present(Attenuate)) InflowFld(side_ind)%Attenuate = Attenuate

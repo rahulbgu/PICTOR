@@ -5,93 +5,7 @@ module comm_savedata
      use savedata_routines
      implicit none 
 contains 
-     subroutine SendFldSizeToMaster
-          integer,dimension(3) :: fld_size_this
-          fld_size_this(1)=fdatax
-          fld_size_this(2)=fdatay
-          fld_size_this(3)=fdataz
-          call MPI_SEND(fld_size_this,3,MPI_INTEGER,0,0,MPI_COMM_WORLD,ierr)     
-     end subroutine SendFldSizeToMaster
-     subroutine RecvFldSizeAtMaster(proc_no)
-          integer :: proc_no
-          integer, dimension(MPI_STATUS_SIZE) :: stat
-          call MPI_RECV(fld_size_all(proc_no,:),3,MPI_INTEGER,proc_no,0,MPI_COMM_WORLD,stat,ierr)
-     end subroutine RecvFldSizeAtMaster
-     subroutine SendEMFldToMaster
-          integer :: fdsize 
-          fdsize=fdatax*fdatay*fdataz
-          call CollectFld(Ex,1)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,1,MPI_COMM_WORLD,ierr)
-          call CollectFld(Ey,3)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,2,MPI_COMM_WORLD,ierr)
-          call CollectFld(Ez,5)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,3,MPI_COMM_WORLD,ierr)
-          call CollectFld(Bx,7)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,4,MPI_COMM_WORLD,ierr)
-          call CollectFld(By,9)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,5,MPI_COMM_WORLD,ierr)
-          call CollectFld(Bz,11)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,6,MPI_COMM_WORLD,ierr)
-     end subroutine SendEMFldToMaster
-     subroutine SendCurrToMaster
-          integer :: fdsize 
-          fdsize=fdatax*fdatay*fdataz
-          !currents are interpolated to grid points in the same way as E 
-          call CollectFld(Jx,1)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,7,MPI_COMM_WORLD,ierr)
-          call CollectFld(Jy,3)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,8,MPI_COMM_WORLD,ierr)
-          call CollectFld(Jz,5)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,9,MPI_COMM_WORLD,ierr)
-          
-     end subroutine SendCurrToMaster
-     subroutine SendDensityToMaster
-          integer :: fdsize 
-          fdsize=fdatax*fdatay*fdataz
-          call CollectFld(Jx,13)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,10,MPI_COMM_WORLD,ierr)
-          call CollectFld(Jy,13)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,11,MPI_COMM_WORLD,ierr)
-               
-     end subroutine SendDensityToMaster
-     subroutine SendVelFldToMaster_ion
-          integer :: fdsize 
-          fdsize=fdatax*fdatay*fdataz
-          call CollectFld(Jx,13)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,12,MPI_COMM_WORLD,ierr)
-          call CollectFld(Jy,13)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,13,MPI_COMM_WORLD,ierr)
-          call CollectFld(Jz,13)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,14,MPI_COMM_WORLD,ierr)
-          
-     end subroutine SendVelFldToMaster_ion
-     subroutine SendVelFldToMaster_elec
-          integer :: fdsize 
-          fdsize=fdatax*fdatay*fdataz
-          call CollectFld(Jx,13)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,15,MPI_COMM_WORLD,ierr)
-          call CollectFld(Jy,13)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,16,MPI_COMM_WORLD,ierr)
-          call CollectFld(Jz,13)
-          call MPI_SEND(fdata,fdsize,mpi_psn,0,17,MPI_COMM_WORLD,ierr)
-          
-     end subroutine SendVelFldToMaster_elec
-     subroutine senddivEToMaster
-          call CalcDivE
-          call CollectFld(Jx,13)
-          call MPI_SEND(fdata,fdatax*fdatay*fdataz,mpi_psn,0,18,MPI_COMM_WORLD,ierr)
-     end subroutine senddivEToMaster
      
-     subroutine RecvFldAtMaster(proc_no,tag)
-          integer :: fs1,fs2,fs3,proc_no,tag
-          integer, dimension(MPI_STATUS_SIZE) :: stat
-          fs1=fld_size_all(proc_no,1)
-          fs2=fld_size_all(proc_no,2)
-          fs3=fld_size_all(proc_no,3)
-        allocate(fdata(fs1,fs2,fs3))
-          call MPI_RECV(fdata,fs1*fs2*fs3,mpi_psn,proc_no,tag,MPI_COMM_WORLD,stat,ierr)
-     end subroutine RecvFldAtMaster
-
      subroutine GatherEnergy
           real(psn), dimension(4) :: energy_this
           energy=0
@@ -102,75 +16,16 @@ contains
      !---------------------------------------------------------------------------------------------
      !The following subroutines are to facilitate saving particle data 
      !---------------------------------------------------------------------------------------------
-          subroutine SendPrtlToMaster
-                call CollectPrtl(1)
-               call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,1,MPI_COMM_WORLD,ierr) !send x data first
-               call CollectPrtl(2)
-               call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,2,MPI_COMM_WORLD,ierr) 
-                call CollectPrtl(3)
-               call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,3,MPI_COMM_WORLD,ierr) 
-                call CollectPrtl(4)
-               call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,4,MPI_COMM_WORLD,ierr) 
-                call CollectPrtl(5)
-               call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,5,MPI_COMM_WORLD,ierr) 
-                call CollectPrtl(6)
-               call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,6,MPI_COMM_WORLD,ierr) 
-                call CollectPrtl(7)
-               call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,7,MPI_COMM_WORLD,ierr) 
-                call CollectPrtl(8)
-               call MPI_SEND(pdata_int,tosave_prtl_arr_size,MPI_INTEGER,0,8,MPI_COMM_WORLD,ierr) 
-#ifdef mulflvr               
-                call CollectPrtl(9)
-               call MPI_SEND(pdata_int,tosave_prtl_arr_size,MPI_INTEGER,0,9,MPI_COMM_WORLD,ierr) 
-                call CollectPrtl(10)
-               call MPI_SEND(pdata_int,tosave_prtl_arr_size,MPI_INTEGER,0,10,MPI_COMM_WORLD,ierr) 
-#endif
-               if(save_prtl_local_fld) then
-                     call CollectPrtl(11)
-                    call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,11,MPI_COMM_WORLD,ierr) 
-                    call CollectPrtl(12)
-                   call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,12,MPI_COMM_WORLD,ierr) 
-                    call CollectPrtl(13)
-                     call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,13,MPI_COMM_WORLD,ierr) 
-                     call CollectPrtl(14)
-                    call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,14,MPI_COMM_WORLD,ierr) 
-                    call CollectPrtl(15)
-                   call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,15,MPI_COMM_WORLD,ierr) 
-                    call CollectPrtl(16)
-                     call MPI_SEND(pdata_real,tosave_prtl_arr_size,mpi_psn,0,16,MPI_COMM_WORLD,ierr) 
-               end if
-          
-          end subroutine SendPrtlToMaster
-          subroutine SendPrtlSizeToMaster
-               call MPI_SEND(tosave_prtl_arr_size,1,MPI_INTEGER,0,0,MPI_COMM_WORLD,ierr)          
-          end subroutine SendPrtlSizeToMaster
-          subroutine RecvPrtlSizeAtMaster(proc_no)
-               integer :: proc_no
-               integer, dimension(MPI_STATUS_SIZE) :: stat
-               call MPI_RECV(prtl_arr_size_all(proc_no),1,MPI_INTEGER,proc_no,0,MPI_COMM_WORLD,stat,ierr)
-          end subroutine RecvPrtlSizeAtMaster
-          subroutine RecvPrtlAtMaster(proc_no,tag,dtype)
-               integer :: proc_no,tag,dtype
-               integer, dimension(MPI_STATUS_SIZE)::stat
-               select case (dtype)
-                case(1)
-                   allocate(pdata_real(prtl_arr_size_all(proc_no)))
-                 call MPI_RECV(pdata_real,prtl_arr_size_all(proc_no),mpi_psn,proc_no,tag,MPI_COMM_WORLD,stat,ierr)               
-                 case(2)
-                      allocate(pdata_int(prtl_arr_size_all(proc_no)))
-                    call MPI_RECV(pdata_int,prtl_arr_size_all(proc_no),MPI_INTEGER,proc_no,tag,MPI_COMM_WORLD,stat,ierr)
-               end select                
-          end subroutine RecvPrtlAtMaster
 
-          subroutine ReduceToSavePrtlSize
-               call MPI_ALLGATHER(tosave_prtl_arr_size,1,MPI_INTEGER,prtl_arr_size_all,1,MPI_INTEGER,MPI_COMM_WORLD,ierr)
-          end subroutine ReduceToSavePrtlSize
+     subroutine ReduceToSavePrtlSize
+           call MPI_ALLGATHER(tosave_prtl_arr_size,1,MPI_INTEGER,prtl_arr_size_all,1,MPI_INTEGER,MPI_COMM_WORLD,ierr)
+     end subroutine ReduceToSavePrtlSize
      
 
 ! !----The following subroutine are for corsscheck purpose, should not be part of the final version ---------------
         subroutine GetTotalNP
                integer :: np_total,np_temp,i,np0
-               integer, dimension(MPI_STATUS_SIZE) :: stat
+               type(MPI_Status) :: stat  
                save np0
                if(proc.eq.0) then
                     np_total=np
@@ -187,7 +42,7 @@ contains
         end subroutine GetTotalNP
 !         subroutine GetTotalPositiveA
 !                integer :: a_total,a_temp,i,j,a0
-!                integer, dimension(MPI_STATUS_SIZE) :: stat
+!                type(MPI_Status) :: stat  
 !                save a0
 !                a_total=0
 !                do j=1,prtl_arr_size
@@ -208,7 +63,7 @@ contains
 !         end subroutine GetTotalPositiveA
 !           subroutine GetTotalIon
 !                integer :: ion_total,ion_temp,i,j,ion0
-!                integer, dimension(MPI_STATUS_SIZE) :: stat
+!                type(MPI_Status) :: stat  
 !                save ion0
 !                ion_total=0
 !                do j=1,prtl_arr_size
@@ -229,7 +84,7 @@ contains
 !           end subroutine GetTotalIon
           subroutine GetPositiveQ
                integer :: q_total,q_temp,i,j,q0
-               integer, dimension(MPI_STATUS_SIZE) :: stat
+               type(MPI_Status) :: stat  
                save q0
                q_total=0
                do j=1,used_prtl_arr_size
@@ -251,7 +106,7 @@ contains
           end subroutine GetPositiveQ
           subroutine GetNegativeQ
                integer :: q_total,q_temp,i,j,q0
-               integer, dimension(MPI_STATUS_SIZE) :: stat
+               type(MPI_Status) :: stat  
                save q0
                q_total=0
                do j=1,used_prtl_arr_size

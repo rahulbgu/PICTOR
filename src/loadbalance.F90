@@ -34,7 +34,7 @@ contains
 ! Following subroutines are for computing and using "npx"; particle density along the x-direction (cell-by-cell)
 !---------------------------------------------------------------------------	
     subroutine BalanceLoad
-		if(modulo(t,domain_change_period).ne.0) return
+		if(modulo(t,load_balance_period).ne.0) return
 		select case (load_balancing_type)
 			case(1)
 				call LoadBalanceShock
@@ -72,150 +72,6 @@ contains
 		npx=npx/sum
 	end subroutine NumPrtlX_CDF 
 	
-!------------------------------------------------------------------------------
-!The following subroutines are helpful in the case of inhomogenous plasma,such as shock, when physical domain on proc is allowed to change 
-!------------------------------------------------------------------------------
-
-!Important note::: "The following subroutine is very outdated"
-! It was written for 2D domain decomposition and now needs to be updated for 3D domain decomposition and new schemes
-
-
-
-!  subroutine LoadBalanceHomogeneous
-!       integer :: i,j,l,m,i0,j0,i1,i2
-!       real, dimension(0:nSubDomainsX-1,0:nSubDomainsY-1) :: exectime_grid
-!       integer,dimension(0:nSubDomainsX-1,0:nSubDomainsY-1) :: proc_swap
-!       real, dimension(0:nSubDomainsX-1) :: mean_TotalTime_column
-!       real :: time_temp
-!       integer, dimension(nproc) :: slow_proc,replacement_proc
-!       integer :: loadbalance_profiling_ind
-!       logical :: xborders_changed
-!       save loadbalance_profiling_ind
-!       data loadbalance_profiling_ind /1/
-!       xborders_changed=.false.
-!       !profile the performance history of all processors before making any decison about balancing the laod
-!       if(modulo(t,loadbalance_profiling_period).eq.0) then
-!            if(loadbalance_profiling_ind.gt.100) loadbalance_profiling_ind=1
-!            hist_TotalTime(loadbalance_profiling_ind)=real(exec_time(4))/xlen
-!            loadbalance_profiling_ind=loadbalance_profiling_ind+1
-!            mean_TotalTime=average(hist_TotalTime,100)
-!       end if
-!
-!        if(modulo(t,domain_change_period).eq.0) then
-!            exectime_grid=0
-!            exectime_grid(procxind(proc),procyind(proc))=mean_TotalTime
-!            call BcastExecTimeAll(exectime_grid)
-!
-!          !first calculate the average execution time of all proc in a column (i=const.)
-!            mean_TotalTime_column=0
-!            do i=0,nSubDomainsX-1
-!                do j=0,nSubDomainsY-1
-!                     mean_TotalTime_column(i)=mean_TotalTime_column(i)+exectime_grid(i,j)
-!                end do
-!                    mean_TotalTime_column(i)=mean_TotalTime_column(i)/nSubDomainsY
-!            end do
-!            !print*, 'column average', mean_TotalTime_column
-!
-!
-!            ! prepare a list of underperforming proc
-!            l=0
-!            do i=0,nSubDomainsX-1
-!                 do j=0,nSubDomainsY-1
-!                      if(exectime_grid(i,j).gt.mean_TotalTime_column(i)*1.1) then
-!                           l=l+1
-!                           slow_proc(l)=proc_grid(i,j)
-!                      end if
-!                 end do
-!            end do
-!            if((l.gt.0).and.(proc.eq.0)) print *,'Proc found to slow down the performance are:',slow_proc(1:l)
-! !            if(proc.eq.0) then
-! !            do i=0,nSubDomainsX-1
-! !                 do j=0,nSubDomainsY-1
-! !                  print*,'AT PROC',proc_grid(i,j), 'time',exectime_grid(i,j)
-! !                 end do
-! !            end do
-! !           end if
-!
-!            !find a well performing proc that would replace underperforming proc
-!          proc_swap=0
-!            do m=1,l
-!                 replacement_proc(m)=-1
-!                 do i=0,procxind(slow_proc(m))-1
-!                      do j=0,nSubDomainsY-1
-!                          if(proc_swap(i,j).eq.0) then
-!                                if(exectime_grid(i,j)*1.05.lt.exectime_grid(procxind(slow_proc(m)),procyind(slow_proc(m)))) then
-!                                     proc_swap(i,j)=1
-!                                     proc_swap(procxind(slow_proc(m)),procyind(slow_proc(m)))=1
-!                                     replacement_proc(m)=proc_grid(i,j)
-!                                end if
-!                           end if
-!                           if(replacement_proc(m).ge.0) exit
-!                      end do
-!                      if(replacement_proc(m).ge.0) exit
-!                 end do
-!            end do
-!
-!            do m=1,l
-!                 if(replacement_proc(m).ge.0) then
-!                      proc_grid(procxind(replacement_proc(m)),procyind(replacement_proc(m)))=slow_proc(m)
-!                      proc_grid(procxind(slow_proc(m)),procyind(slow_proc(m)))=replacement_proc(m)
-!                      time_temp=exectime_grid(procxind(replacement_proc(m)),procyind(replacement_proc(m)))
-!                      exectime_grid(procxind(replacement_proc(m)),procyind(replacement_proc(m)))=exectime_grid(procxind(slow_proc(m)),procyind(slow_proc(m)))
-!                  exectime_grid(procxind(slow_proc(m)),procyind(slow_proc(m)))=time_temp
-!
-!                      i1=procxind(replacement_proc(m))
-!                      i2=procyind(replacement_proc(m))
-!                      procxind(replacement_proc(m))=procxind(slow_proc(m))
-!                      procyind(replacement_proc(m))=procyind(slow_proc(m))
-!                      procxind(slow_proc(m))=i1
-!                      procyind(slow_proc(m))=i2
-!                      call SwapDomain(slow_proc(m),replacement_proc(m))
-!                      if(proc.eq.0) print*,'Swapped slow proc', slow_proc(m),'With',replacement_proc(m)
-!                end if
-!            end do
-!            !if(l.gt.0) print*,'replacement proc is',m,replacement_proc
-!
-!
-!
-!            !put the exetime of the slowest proc in mean_TotalTime_column
-!            mean_TotalTime_column=0
-!            do i=0,nSubDomainsX-1
-!                 do j=0,nSubDomainsY-1
-!                      if(exectime_grid(i,j).gt.mean_TotalTime_column(i)) mean_TotalTime_column(i)=exectime_grid(i,j)
-!                 end do
-!            end do
-!
-!            !Adjust the x-boundaries to redistribute load
-!            time_temp=0
-!            do i=0,nSubDomainsX-1
-!                 time_temp=time_temp+1/mean_TotalTime_column(i)
-!            end do
-!            time_temp=(xborders(nSubDomainsX)-xborders(0))/time_temp
-!
-!            xborders_new(0)=xborders(0)
-!            do i=0,nSubDomainsX-2
-!                 !xborders_new(i+1)=xborders_new(i)+max(1,int(time_temp*(xborders(i+1)-xborders(i))/mean_TotalTime_column(i)))
-!                 xborders_new(i+1)=xborders_new(i)+max(4,fsave_ratio*int(time_temp/(mean_TotalTime_column(i)*fsave_ratio)))
-!                 xborders_new(i+1)=min(xborders_new(i+1),xborders(nSubDomainsX)-max(fsave_ratio,4)*(nSubDomainsX-i-1)) !to set maximum limit on domain enlargement
-!                 !the above scheme is due to the way save data is written, must be modified
-!
-!                 if(abs(xborders_new(i+1)-xborders(i+1)).gt.0) xborders_changed=.true.
-!            end do
-!            xborders_new(nSubDomainsX)=xborders(nSubDomainsX)
-!
-!            if(xborders_changed) then
-!                 if(proc.eq.0) then
-!                     print*,'Changing the Xborders'
-!                      print*,'New Borders',xborders_new
-!                      print*,'Old Borders',xborders
-!                      print*, 'proc_grid is ',proc_grid
-!                 end if
-!                 call SetNewXBorders
-!            end if
-!
-!        end if
-!
-!  end subroutine LoadBalanceHomogeneous
 
 !-------------------------------------------------------------------------------------
 ! The following load-balancing scheme adjusts y-borders only
@@ -228,7 +84,7 @@ contains
  
       yborders_changed=.false.
 
-      if(modulo(t,domain_change_period).eq.0) then
+      if(modulo(t,load_balance_period).eq.0) then
            exectime_grid=0
            dYdomain=yborders(procyind(proc)+1)-yborders(procyind(proc))
 		   exectime_grid(procxind(proc),procyind(proc),proczind(proc))=real(max(np,10))/dYdomain
@@ -295,7 +151,7 @@ contains
 	  if(nSubDomainsY.le.3) return ! too few proc. for load balancing
 	  
 
-      if(modulo(t,domain_change_period).eq.0) then
+      if(modulo(t,load_balance_period).eq.0) then
            exectime_grid=0
            dYdomain=yborders(procyind(proc)+1)-yborders(procyind(proc))
 		   exectime_grid(procxind(proc),procyind(proc),proczind(proc))=real(max(np,10))/dYdomain
@@ -467,7 +323,7 @@ contains
 
 
 
-       if(modulo(t,domain_change_period).eq.0) then
+       if(modulo(t,load_balance_period).eq.0) then
            exectime_grid=0
 		   exectime_grid(procxind(proc),procyind(proc),proczind(proc))=real(max(np,10))/(xborders(procxind(proc)+1)-xborders(procxind(proc)))
            call BcastExecTimeAll(exectime_grid)

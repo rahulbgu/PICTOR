@@ -9,13 +9,7 @@ module fields
 	 
 	 logical :: ext_current_present = .false. ! no external current by default 
 
-	 procedure(sub_ext), pointer :: J_ext => null()
-	 abstract interface 
-		 subroutine sub_ext(x,y,z,fx,fy,fz)
-			 import :: psn
-			 real(psn) :: x,y,z,fx,fy,fz
-		 end subroutine
-     end interface 
+	 procedure(vector_global), pointer :: J_ext => null()
 contains 
      
      subroutine ResetCurrent
@@ -205,8 +199,8 @@ contains
 	 subroutine FoldInCurrentRight
 		 integer :: ind_local
 		 
-		 ! Assuming current ->0 near the injector, let the current filter into a buffer domain between the inecjor and Fld BC 
-		 if(BC_Xmax_Prtl_Type.eq.'iflw') return  
+		 
+		 if(BC_Xmax_Prtl_Type.eq.'iflw') return ! Assuming current ->0 near the injector, let the current filter into a buffer domain between the inecjor and Fld BC 
 		 
 		 ind_local = floor(BC_Xmax_Prtl-xborders(procxind(proc))+3)
 		 if(ind_local.ge.1.and.ind_local.le.mx-1) then 
@@ -248,9 +242,11 @@ contains
 	 
      subroutine AddExternalCurrent
  		integer :: i,j,k
- 		real(psn) :: x,y,z
+ 		real(dbpsn) :: x,y,z
  		real(psn) :: j_x,j_y,j_z
 
+        if(ext_current_present.eqv..false.) return
+		
 #ifdef twoD
          do k=1,1
 #else 	
@@ -261,18 +257,18 @@ contains
  				x= i -3.0_psn + xborders(procxind(proc))
  				y= j -3.0_psn + yborders(procyind(proc))
 #ifdef twoD    
-                 z=0.0_psn
+                z=0.0_psn
 #else				 				
  				z= k - 3.0_psn + zborders(proczind(proc))
 #endif 				
- 			    call J_ext(x + 0.5_psn,y,z,j_x,j_y,j_z)
+ 			    call J_ext(x + 0.5_dbpsn,y,z,j_x,j_y,j_z)
  				Jx(i,j,k)= Jx(i,j,k) + j_x
- 			    call J_ext(x,y + 0.5_psn,z,j_x,j_y,j_z)
+ 			    call J_ext(x,y + 0.5_dbpsn,z,j_x,j_y,j_z)
  				Jy(i,j,k)= Jy(i,j,k) + j_y
 #ifdef twoD				
- 				call J_ext(x,y,0.0_psn,j_x,j_y,j_z)
+ 				call J_ext(x,y,0.0_dbpsn,j_x,j_y,j_z)
 #else				
- 				call J_ext(x,y,z + 0.5_psn,j_x,j_y,j_z)
+ 				call J_ext(x,y,z + 0.5_dbpsn,j_x,j_y,j_z)
 #endif				
 			
  				Jz(i,j,k)= Jz(i,j,k) + j_z

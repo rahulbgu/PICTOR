@@ -14,7 +14,7 @@ module savedata
 #endif 
      implicit none    
 	 INTEGER(HID_T) :: h5real_psn
-     character (len=4), dimension(19)::pvnames=(/'x   ','y   ','z   ','u   ','v   ','w   ','q   ','a   ','flv ','var1','pEx ','pEy ','pEz ',&
+     character (len=4), dimension(19)::pvnames=(/'x   ','y   ','z   ','u   ','v   ','w   ','q   ','tag ','flv ','var1','pEx ','pEy ','pEz ',&
                                                  'pBx ','pBy ','pBz ','pJx ','pJy ','pJz '/)
      character (len=5), dimension(26)::fvnames=(/'Ex   ','Ey   ','Ez   ','Bx   ','By   ','Bz   ','Jx   ','Jy   ','Jz   ','Di   ',&
                                                  'De   ','Jxi  ','Jyi  ','Jzi  ','Jxe  ','Jye  ','Jze  ','divE ','ExVxi','EyVyi',&
@@ -200,7 +200,7 @@ contains
 		  
           dmemspace_this(1)=prtl_arr_size_all(proc)
           call h5pcreate_f(H5P_FILE_ACCESS_F, plist, err)
-          call h5pset_fapl_mpio_f(plist, MPI_COMM_WORLD, MPI_INFO_NULL , err)
+          call h5pset_fapl_mpio_f(plist, MPI_COMM_WORLD%MPI_VAL, MPI_INFO_NULL%MPI_VAL , err)
           call h5fcreate_f(fname, H5F_ACC_TRUNC_F, fid, err, access_prp = plist)
           call h5pclose_f(plist, err)
 
@@ -338,7 +338,7 @@ contains
           !print*,'At proc',proc,'offset is',offset3,fdatax
           
         call h5pcreate_f(H5P_FILE_ACCESS_F, plist, err)
-        call h5pset_fapl_mpio_f(plist, MPI_COMM_WORLD, MPI_INFO_NULL , err)
+        call h5pset_fapl_mpio_f(plist, MPI_COMM_WORLD%MPI_VAL, MPI_INFO_NULL%MPI_VAL , err)
         call h5fcreate_f(fname, H5F_ACC_TRUNC_F, fid, err, access_prp = plist)
         call h5pclose_f(plist, err)
           
@@ -897,7 +897,7 @@ end subroutine save_spec_master_all_prtl
           rank=1
          call h5open_f(err)
         call h5pcreate_f(H5P_FILE_ACCESS_F, plist, err)
-        call h5pset_fapl_mpio_f(plist, MPI_COMM_WORLD, MPI_INFO_NULL , err)
+        call h5pset_fapl_mpio_f(plist, MPI_COMM_WORLD%MPI_VAL, MPI_INFO_NULL%MPI_VAL , err)
           call h5fcreate_f(fname, H5F_ACC_TRUNC_F, fid, err, access_prp = plist)
         call h5pclose_f(plist, err)
 
@@ -1131,22 +1131,30 @@ subroutine save_param_restart
      call h5dcreate_f(fid,'FlvrCharge',h5psn,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,h5psn,FlvrCharge,data_dim1,err)
      call h5dclose_f(dset_id,err) 
-     call h5dcreate_f(fid,'FlvrSaveFldData',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,FlvrSaveFldData,data_dim1,err)
+     call h5dcreate_f(fid,'FlvrSaveFldData',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,FlvrSaveFldData,data_dim1,err)
      call h5dclose_f(dset_id,err) 
-     call h5dcreate_f(fid,'FlvrType',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,FlvrType,data_dim1,err)
+     call h5dcreate_f(fid,'FlvrType',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,FlvrType,data_dim1,err)
      call h5dclose_f(dset_id,err) 
-     call h5dcreate_f(fid,'FlvrSpare',h5psn,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,h5psn,FlvrSpare,data_dim1,err)
+     call h5dcreate_f(fid,'FlvrSaveRatio',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,FlvrSaveRatio,data_dim1,err)
      call h5dclose_f(dset_id,err) 
-     call h5dcreate_f(fid,'TagCounter',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,TagCounter,data_dim1,err)
+     call h5dcreate_f(fid,'TagBlock',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,TagBlock,data_dim1,err)
      call h5dclose_f(dset_id,err) 
      call h5dcreate_f(fid,'CurrentTagID',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,CurrentTagID,data_dim1,err)
-     call h5dclose_f(dset_id,err) 
+     call h5dclose_f(dset_id,err) 	 
      call h5sclose_f(dspace_id,err)
+	 
+     data_dim1(1)=6	 
+	 print*,'inflow speed is',inflowBC_speed
+ 	 call h5screate_simple_f(rank,data_dim1,dspace_id,err)
+     call h5dcreate_f(fid,'inflowBC_speed',h5psn,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,h5psn,inflowBC_speed,data_dim1,err)
+     call h5dclose_f(dset_id,err)
+	 call h5sclose_f(dspace_id,err) 
 
      rank=1
      data_dim1(1)=nSubDomainsX+1
@@ -1231,318 +1239,5 @@ end subroutine save_restart_time
 !============================================End of restart data save subroutines ====================================================
 
       
-	 
-!-------------------------------------------------------------------------------------------------------
-! Some older subroutines 
-!------------------------------------------------------------------------------------------------------	 
-!      subroutine SaveOutputMaster ! data is first transferred to the root proc and then root writes the data
-!           call SaveOutput_custom
-!           if((prtl_save_period.gt.0).and.(modulo(t,prtl_save_period).eq.0)) call save_particles_master
-!           if((fld_save_period.gt.0).and.(modulo(t,fld_save_period).eq.0))   call save_field_master
-!           if((spec_save_period.gt.0).and.(modulo(t,spec_save_period).eq.0)) call save_spec_master_all_prtl 
-!           !call save_total_energy ! to save energy data
-!      end subroutine SaveOutputMaster	
-!========================================================================================================
-! The following subroutines are used to write field and particle data in serial: All processors send their data to the 
-! master processor and then the master processor writes all the data 
-! Warning : These subroutines may be borken (Parallel version is constantly updated and is the one genrally used)  
-!======================================================================================================== 
-!
-!      subroutine save_particles_master
-!           integer:: i
-!           call h5open_f(err)
-!           if(proc.eq.0) then
-!           write(fname,'(I0)') t
-!           fname=trim(data_folder)//"/prtl_"//trim(fname)
-!           do i=1,nproc-1
-!             call RecvPrtlSizeAtMaster(i)
-!           end do
-!            call h5fcreate_f(fname,H5F_ACC_TRUNC_F,fid, err)
-!           call GetSizeofCollectPrtl
-!           call save_particles_real_arr_master(1)
-!           call save_particles_real_arr_master(2)
-!           call save_particles_real_arr_master(3)
-!           call save_particles_real_arr_master(4)
-!           call save_particles_real_arr_master(5)
-!           call save_particles_real_arr_master(6)
-!           call save_particles_real_arr_master(7)
-!           call save_particles_int_arr_master(8) !integer type
-! #ifdef mulflvr
-!           call save_particles_int_arr_master(9)
-!           call save_particles_int_arr_master(10)
-! #endif
-!           if(save_prtl_local_fld) then
-!                call CalcPrtlLocalEMField
-!                call save_particles_real_arr_master(11)
-!                call save_particles_real_arr_master(12)
-!                call save_particles_real_arr_master(13)
-!                call save_particles_real_arr_master(14)
-!                call save_particles_real_arr_master(15)
-!                call save_particles_real_arr_master(16)
-!           end if
-!
-!
-!
-!
-!            call h5fclose_f(fid,err)
-!           deallocate(pdata_real,pdata_int)
-!           if(save_prtl_local_fld) deallocate(pdata_local_field)
-!
-!           else
-!                 call GetSizeofCollectPrtl
-!                 call SendPrtlSizeToMaster
-!                if(save_prtl_local_fld) call CalcPrtlLocalEMField
-!                 call SendPrtlToMaster
-!                deallocate(pdata_real,pdata_int)
-!                if(save_prtl_local_fld) deallocate(pdata_local_field)
-!           end if
-!           call h5close_f(err)
-!      end subroutine save_particles_master
-!      subroutine save_particles_real_arr_master(vid)
-!           integer :: vid,curr_dset_size
-!           call CollectPrtl(vid)
-!           if(vid.eq.1) pdata_real=pdata_real+xborders(procxind(proc))-3
-!           if(vid.eq.2) pdata_real=pdata_real+yborders(procyind(proc))-3
-! #ifndef twoD
-!            if(vid.eq.3) pdata_real=pdata_real+zborders(proczind(proc))-3
-! #endif
-!
-!            rank=1
-!            data_dim1(1)=tosave_prtl_arr_size
-!            max_dim1(1)=H5S_UNLIMITED_F
-!            chunk_dim1(1)=max(tosave_prtl_arr_size,10) !to make sure that chunk_dim doesn't become 0(in case there is nothing to write at proc 0)
-!           call h5screate_simple_f(rank,data_dim1,dspace_id,err,max_dim1)
-!           call h5pcreate_f(H5P_DATASET_CREATE_F, plist, err)
-!           call h5pset_chunk_f(plist, RANK, chunk_dim1, err)
-!            call h5dcreate_f(fid,pvnames(vid), H5T_NATIVE_DOUBLE, dspace_id, dset_id,err,plist)
-!           call h5dwrite_f(dset_id,H5T_NATIVE_REAL,pdata_real,data_dim1,err)
-!           deallocate(pdata_real)
-!             curr_dset_size=tosave_prtl_arr_size
-!                  do i=1,nproc-1
-!                      call RecvPrtlAtMaster(i,vid,1)
-!                     if(vid.eq.1) pdata_real=pdata_real+xborders(procxind(i))-3
-!                     if(vid.eq.2) pdata_real=pdata_real+yborders(procyind(i))-3
-! #ifndef twoD
-!                      if(vid.eq.3) pdata_real=pdata_real-3
-! #endif
-!                        offset1(1)=curr_dset_size
-!                        dcount1(1)=prtl_arr_size_all(i)
-!                        curr_dset_size=curr_dset_size+prtl_arr_size_all(i)
-!                        new_size1(1)=curr_dset_size
-!                        call h5dset_extent_f(dset_id, new_size1, err)
-!                        data_dim1(1)=prtl_arr_size_all(i)
-!                      call h5screate_simple_f(rank, data_dim1,memspace,err)
-!                       call h5dget_space_f(dset_id, dspace_id, err)
-!                        call h5sselect_hyperslab_f(dspace_id,H5S_SELECT_SET_F,offset1,data_dim1,err)
-!                        call h5dwrite_f(dset_id, H5T_NATIVE_REAL,pdata_real,data_dim1,err,memspace,dspace_id)
-!                     deallocate(pdata_real)
-!                    call h5sclose_f(dspace_id,err)
-!                     call h5sclose_f(memspace, err)
-!                end do
-!           call h5dclose_f(dset_id,err)
-!            call h5pclose_f(plist,err)
-!           allocate(pdata_real(tosave_prtl_arr_size))
-!      end subroutine save_particles_real_arr_master
-!
-!      subroutine save_particles_int_arr_master(vid)
-!           integer ::vid,curr_dset_size
-!
-!           !allocate(pdata_int(tosave_prtl_arr_size))
-!           call CollectPrtl(vid)
-!
-!            rank=1
-!            data_dim1(1)=tosave_prtl_arr_size
-!            max_dim1(1)=H5S_UNLIMITED_F
-!            chunk_dim1(1)=max(tosave_prtl_arr_size,10)
-!           call h5screate_simple_f(rank,data_dim1,dspace_id,err,max_dim1)
-!           call h5pcreate_f(H5P_DATASET_CREATE_F, plist, err)
-!           call h5pset_chunk_f(plist, RANK, chunk_dim1, err)
-!            call h5dcreate_f(fid,pvnames(vid), H5T_NATIVE_INTEGER, dspace_id, dset_id,err,plist)
-!            call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,pdata_int,data_dim1,err)
-!           deallocate(pdata_int)
-!           curr_dset_size=tosave_prtl_arr_size
-!                  do i=1,nproc-1
-!                      call RecvPrtlAtMaster(i,vid,2)  ! 2 for integer type
-!                        offset1(1)=curr_dset_size
-!                        dcount1(1)=prtl_arr_size_all(i)
-!                        curr_dset_size=curr_dset_size+prtl_arr_size_all(i)
-!                        new_size1(1)=curr_dset_size
-!                        call h5dset_extent_f(dset_id, new_size1, err)
-!                        data_dim1(1)=prtl_arr_size_all(i)
-!                      call h5screate_simple_f(rank, data_dim1,memspace,err)
-!                       call h5dget_space_f(dset_id, dspace_id, err)
-!                        call h5sselect_hyperslab_f(dspace_id,H5S_SELECT_SET_F,offset1,data_dim1,err)
-!                        call h5dwrite_f(dset_id, H5T_NATIVE_INTEGER,pdata_int,data_dim1,err,memspace,dspace_id)
-!                     deallocate(pdata_int)
-!                    call h5sclose_f(dspace_id,err)
-!                     call h5sclose_f(memspace, err)
-!                end do
-!                call h5dclose_f(dset_id,err)
-!                call h5pclose_f(plist,err)
-!                allocate(pdata_int(tosave_prtl_arr_size))
-!
-!      end subroutine save_particles_int_arr_master
-!
-!
-!      subroutine save_field_master
-!           integer:: i
-!           integer,dimension(proc,3) :: fld_size_all
-!           call h5open_f(err)
-!           if(proc.eq.0) then
-!             write(fname,'(I0)') t
-!             fname=trim(data_folder)//"/fld_"//trim(fname)
-!
-!             do i=1,nproc-1
-!               call RecvFldSizeAtMaster(i)
-!             end do
-!              call h5fcreate_f(fname,H5F_ACC_TRUNC_F,fid, err)
-!             call GetSizeofCollectFld
-!             !fld_size_all(0,1)=fdatax !!!NOTE: fortran gives error if I define 0th element here (WHY??)
-!             !fld_size_all(0,2)=fdatay
-!             !fld_size_all(0,3)=fdataz
-!             !fld_size_all(0,1)=fdatax
-!
-!             call save_fields_arr_master(Ex,1,1) ! third argument tells the averaging rule to calculate quantities at grid points
-!             call save_fields_arr_master(Ey,2,3)
-!             call save_fields_arr_master(Ez,3,5)
-!             call save_fields_arr_master(Bx,4,7)
-!             call save_fields_arr_master(By,5,9)
-!             call save_fields_arr_master(Bz,6,11)
-!
-!             if(save_tot_curr) then
-!             !make sure that current edges are updated before taking averages
-!             ! currents are averaged in the same way as E field, so same avgid(third argument)
-!                 call SyncCurrentEdges  !defined in fields
-!                 call save_fields_arr_master(Jx,7,1)
-!                 call save_fields_arr_master(Jy,8,3)
-!                 call save_fields_arr_master(Jz,9,5)
-!            end if
-!
-!               !call CalcDensity ! calculate charge density
-!             !used the available Current matrices to save charge density instead.Now update Edges
-!           !call UpdateCurrentsAllEdges
-!
-!                !!!!WARNING : for 3D XY edge update is also needed
-!
-!             !call save_fields_arr_master(Jx,10,13)
-!             !call save_fields_arr_master(Jy,11,13)
-!
-!             if(save_ch_flux_fld) then
-!                  call CalcChargeFlux(1)
-!                  call UpdateCurrentsAllEdges
-!                  call save_fields_arr_master(Jx,12,13)
-!                  call save_fields_arr_master(Jy,13,13)
-!                  call save_fields_arr_master(Jz,14,13)
-!                  call CalcChargeFlux(-1)
-!                  call UpdateCurrentsAllEdges
-!                  call save_fields_arr_master(Jx,15,13)
-!                  call save_fields_arr_master(Jy,16,13)
-!                  call save_fields_arr_master(Jz,17,13)
-!             end if
-!
-!             if(save_divE) then
-!                  call CalcDivE
-!                  call save_fields_arr_master(Jx,18,13)
-!             end if
-!
-!
-!             call h5fclose_f(fid,err)
-!             deallocate(fdata)
-!           else
-!                call GetSizeofCollectFld
-!                 call SendFldSizeToMaster
-!                 call SendEMFldToMaster
-!
-!                if(save_tot_curr) then
-!                     call SyncCurrentEdges
-!                    call SendCurrToMaster
-!               end if
-!
-!
-!                !call CalcDensity
-!               !call UpdateCurrentsAllEdges
-!
-!                !use the available Current matrices Jx,Jy,Jz to save charge density
-!
-!                !call SendDensityToMaster
-!
-!                 if(save_ch_flux_fld) then
-!                    call CalcChargeFlux(1)
-!                  call UpdateCurrentsAllEdges
-!                  call SendVelFldToMaster_ion
-!                  call CalcChargeFlux(-1)
-!                  call UpdateCurrentsAllEdges
-!                  call SendVelFldToMaster_elec
-!                end if
-!                if(save_divE) call SenddivEToMaster
-!
-!                deallocate(fdata)
-!           end if
-!           call h5close_f(err)
-!      end subroutine save_field_master
-!
-!      subroutine save_fields_arr_master(arr,vid,avgid)
-!           real(psn),dimension(mx,my,mz) :: arr
-!           integer :: vid,avgid
-!           rank=3
-!            data_dim3(1)=fdatax
-!           data_dim3(2)=fdatay
-!           data_dim3(3)=fdataz
-! #ifdef twoD
-!         data_dim3(3)=1
-! #endif
-!            max_dim3(1)=H5S_UNLIMITED_F
-!            max_dim3(2)=H5S_UNLIMITED_F
-!            max_dim3(3)=H5S_UNLIMITED_F
-!
-!            chunk_dim3(1)=fdatax!mx-4
-!           chunk_dim3(2)=fdatay!my
-!           chunk_dim3(3)=fdataz!mz
-!
-!           call CollectFld(arr,avgid)
-!           call h5screate_simple_f(rank,data_dim3,dspace_id,err,max_dim3)
-!           call h5pcreate_f(H5P_DATASET_CREATE_F, plist, err)
-!           call h5pset_chunk_f(plist, RANK, chunk_dim3, err)
-!            call h5dcreate_f(fid,fvnames(vid), H5T_NATIVE_REAL, dspace_id, dset_id,err,plist)
-!            call h5dwrite_f(dset_id,H5T_NATIVE_REAL,fdata,data_dim3,err)
-!           deallocate(fdata)
-!           offset3(1)=0
-!           offset3(2)=0
-!           offset3(3)=0
-!           fld_size_all(0,1)=fdatax
-!           fld_size_all(0,2)=fdatay
-!           fld_size_all(0,2)=fdataz
-!
-!           new_size3=data_dim3
-!                  do i=1,nproc-1
-!                      call RecvFldAtMaster(i,vid)
-!                        offset3(1)=offset3(1)+fld_size_all(i-1,1)
-!                           if(i.lt.nSubDomainsX) new_size3(1)=new_size3(1)+fld_size_all(i,1)
-!                        if(modulo(i,nSubDomainsX).eq.0) then
-!                             new_size3(2)=new_size3(2)+fld_size_all(i,2)
-!                             offset3(1)=0
-!                             offset3(2)=offset3(2)+fld_size_all(i-1,2)
-!                        end if
-!                        call h5dset_extent_f(dset_id, new_size3, err)
-!                           data_dim3=fld_size_all(i,:)
-!                      call h5screate_simple_f(rank, data_dim3,memspace,err)
-!                       call h5dget_space_f(dset_id, dspace_id, err)
-!                        call h5sselect_hyperslab_f(dspace_id,H5S_SELECT_SET_F,offset3,data_dim3,err)
-!                        call h5dwrite_f(dset_id, H5T_NATIVE_REAL,fdata,data_dim3,err,memspace,dspace_id)
-!                     deallocate(fdata)
-!                    call h5sclose_f(dspace_id,err)
-!                     call h5sclose_f(memspace, err)
-!                end do
-!                call h5dclose_f(dset_id,err)
-!                call h5pclose_f(plist,err)
-!               allocate(fdata(fdatax,fdatay,fdataz)) !reallocate the array to write another variable
-!      end subroutine save_fields_arr_master
-!-------------------------------------------------------------------------------------------------------
-!
-! End of subroutines to write data in a serial way 
-!
-!-------------------------------------------------------------------------------------------------------
-	
-	 
 
 end module savedata

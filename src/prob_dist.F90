@@ -2,7 +2,6 @@ module prob_dist
 	use parameters
 	use vars
 	implicit none	
-	integer, parameter :: TableSize=10000
 	integer, parameter :: PoissonTableSize=1000 
 	real(psn), dimension(:), allocatable :: MB_Table, MB_PDF_Table, PoissonTable
     logical :: init_maxbolt=.false.
@@ -13,13 +12,14 @@ contains
 	!The following subroutine returns three-velocity (\gamma*v/c) corresponding to a drifting Maxwell-Boltzman distribution 
 	!Drift= drift speed/c (if Drift<1) OR Lorentz factor (if Drift>1)
 	!Temp= (2kT/mc^2), where T is in the physical units (Temp is dimensionless)
-	subroutine GetVelGamma_MaxBolt(Temp,ugamma,vgamma,wgamma)     
+	subroutine GetVelGamma_MaxBolt(Temp,ugamma,vgamma,wgamma) 
+		 integer                :: TableSize=10000    
 	     real(psn), intent(in)  :: Temp
 	     real(psn), intent(out) :: ugamma,vgamma,wgamma !\gamma * v/c
 	     real(psn) :: r1,gamma,beta
 	     integer :: index
 		 
-	     if(init_maxbolt.eqv..false.) call Init_MaxBolt_Table
+	     if(init_maxbolt.eqv..false.) call Init_MaxBolt_Table(TableSize)
 		 call random_number(r1)     
 	     call BinarySearch(TableSize,MB_PDF_Table,r1,index)  
 		 call InvPDF(TableSize,MB_Table,MB_PDF_Table,r1,index,beta)
@@ -33,20 +33,21 @@ contains
 
 	
 	!Numerical values of the dimensionless quantity (v/c)^2 / (2kT/mc^2) are stored in MB_Table 
-	subroutine Init_MaxBolt_Table()
+	subroutine Init_MaxBolt_Table(N)
+		 integer :: N
 	     real(psn) :: dX, PDF_sum
 	     integer :: i
 		 
-		 if(.not.allocated(MB_Table)) allocate(MB_Table(TableSize),MB_PDF_Table(TableSize))
-	     dX=(15.0_psn-0.0_psn)/(TableSize-1) !Min X = 0.0, Max X = 5.0
+		 if(.not.allocated(MB_Table)) allocate(MB_Table(N),MB_PDF_Table(N))
+	     dX=(15.0_psn-0.0_psn)/(N-1) !Min X = 0.0, Max X = 5.0
  
-	     do i=1,TableSize
+	     do i=1,N
 	          MB_Table(i)=dX*(i-1)
 	     end do  
 	    
 	     PDF_sum=0
 	     MB_PDF_Table(1)=0
-	     do i=2,TableSize
+	     do i=2,N
 	       PDF_sum=PDF_sum+sqrt(MB_Table(i))*exp(-MB_Table(i))
 	       MB_PDF_Table(i)=PDF_sum
 	     end do		 
@@ -119,15 +120,15 @@ contains
 		if(allocated(X_Table)) deallocate(X_Table,PDF_Table)
 		allocate(X_Table(N),PDF_Table(N))
         
-		dX=(vmax-0.0_psn)/(TableSize-1) !Min X = 0.0, Max X = 5.0
+		dX=(vmax-0.0_psn)/(N-1) !Min X = 0.0, Max X = 5.0
 
-        do i=1,TableSize
+        do i=1,N
        		X_Table(i)=dX*(i-1)
         end do  
 		
 	    PDF_sum=0
 	    PDF_Table(1)=0
-	    do i=2,TableSize
+	    do i=2,N
 	    	PDF_sum=PDF_sum + PDF_FUNC(X_Table(i))
 	        PDF_Table(i)=PDF_sum
 	    end do		 
@@ -258,30 +259,30 @@ contains
 	    real(psn), dimension(3) :: dirn
 	    real(psn) :: dirn_mag,projn
 
-		    Drift=sqrt( vx*vx + vy*vy + vz*vz )
-		    if(abs(Drift).lt.1.0_psn) then 
-		         DriftBeta=Drift
-		         DriftGamma=1.0_psn/sqrt((1.0_psn-Drift)*(1.0_psn+Drift))          
-		    else 
-		         DriftGamma=abs(Drift)   
-		         DriftBeta=sqrt((Drift-1.0_psn)*(Drift+1.0_psn))/Drift          
-		    end if
+	    Drift=sqrt( vx*vx + vy*vy + vz*vz )
+	    if(abs(Drift).lt.1.0_psn) then 
+	         DriftBeta=Drift
+	         DriftGamma=1.0_psn/sqrt((1.0_psn-Drift)*(1.0_psn+Drift))          
+	    else 
+	         DriftGamma=abs(Drift)   
+	         DriftBeta=sqrt((Drift-1.0_psn)*(Drift+1.0_psn))/Drift          
+	    end if
 
 
-	         dirn(1)=vx; dirn(2)=vy; dirn(3)=vz;
-	         dirn_mag=sqrt(dirn(1)**2+dirn(2)**2+dirn(3)**2)
+         dirn(1)=vx; dirn(2)=vy; dirn(3)=vz;
+         dirn_mag=sqrt(dirn(1)**2+dirn(2)**2+dirn(3)**2)
 
-	         if(dirn_mag.eq.0) then 
-	              dirn=0
-	         else 
-	              dirn=dirn/dirn_mag
-	         end if
-	         gamma=sqrt(1.0_psn+ugamma**2+vgamma**2+wgamma**2)  
-	         projn=ugamma*dirn(1)+vgamma*dirn(2)+wgamma*dirn(3)
-     
-	         ugamma=ugamma+(DriftGamma-1)*projn*dirn(1) + DriftGamma*DriftBeta*gamma*dirn(1)
-	         vgamma=vgamma+(DriftGamma-1)*projn*dirn(2) + DriftGamma*DriftBeta*gamma*dirn(2)
-	         wgamma=wgamma+(DriftGamma-1)*projn*dirn(3) + DriftGamma*DriftBeta*gamma*dirn(3)
+         if(dirn_mag.eq.0) then 
+              dirn=0
+         else 
+              dirn=dirn/dirn_mag
+         end if
+         gamma=sqrt(1.0_psn+ugamma**2+vgamma**2+wgamma**2)  
+         projn=ugamma*dirn(1)+vgamma*dirn(2)+wgamma*dirn(3)
+ 
+         ugamma=ugamma+(DriftGamma-1)*projn*dirn(1) + DriftGamma*DriftBeta*gamma*dirn(1)
+         vgamma=vgamma+(DriftGamma-1)*projn*dirn(2) + DriftGamma*DriftBeta*gamma*dirn(2)
+         wgamma=wgamma+(DriftGamma-1)*projn*dirn(3) + DriftGamma*DriftBeta*gamma*dirn(3)
 	end subroutine AddDriftVel
 	
 	

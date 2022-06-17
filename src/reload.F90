@@ -2,6 +2,7 @@ module reload
      use parameters
      use vars
      use hdf5
+	 use prtl_tag
 	 INTEGER(HID_T) :: h5real_psn, h5real_dbpsn
 contains 
 	
@@ -122,8 +123,8 @@ contains
           call h5dread_f(dset_id,H5T_NATIVE_INTEGER,Nflvr,data_dim1,err)
           call h5dclose_f(dset_id,err) 
 		  
-          allocate(flvrqm(Nflvr),FlvrCharge(Nflvr),FlvrSaveFldData(Nflvr),FlvrType(Nflvr),FlvrSpare(Nflvr))
-          allocate(CurrentTagID(Nflvr),TagCounter(Nflvr))
+          allocate(flvrqm(Nflvr),FlvrCharge(Nflvr),FlvrSaveFldData(Nflvr),FlvrType(Nflvr),FlvrSaveRatio(Nflvr))
+          allocate(CurrentTagID(Nflvr))
           data_dim1(1)=Nflvr
           call h5dopen_f(fid,'flvrqm', dset_id, err)
           call h5dread_f(dset_id,h5real_psn,flvrqm,data_dim1,err)
@@ -137,15 +138,23 @@ contains
           call h5dopen_f(fid,'FlvrType', dset_id, err)
           call h5dread_f(dset_id,h5real_psn,FlvrType,data_dim1,err)
           call h5dclose_f(dset_id,err) 
-          call h5dopen_f(fid,'FlvrSpare', dset_id, err)
-          call h5dread_f(dset_id,h5real_psn,FlvrSpare,data_dim1,err)
+          call h5dopen_f(fid,'FlvrSaveRatio', dset_id, err)
+          call h5dread_f(dset_id,h5real_psn,FlvrSaveRatio,data_dim1,err)
           call h5dclose_f(dset_id,err) 
           call h5dopen_f(fid,'CurrentTagID', dset_id, err)
           call h5dread_f(dset_id,H5T_NATIVE_INTEGER,CurrentTagID,data_dim1,err)
+          call h5dclose_f(dset_id,err)
+		  
+		  call InitPrtlTag 
+          call h5dopen_f(fid,'TagBlock', dset_id, err)
+          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,TagBlock,data_dim1,err)
           call h5dclose_f(dset_id,err) 
-          call h5dopen_f(fid,'TagCounter', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,TagCounter,data_dim1,err)
+		  
+          data_dim1(1)=6
+          call h5dopen_f(fid,'inflowBC_speed', dset_id, err)
+          call h5dread_f(dset_id,h5real_psn,inflowBC_speed,data_dim1,err)
           call h5dclose_f(dset_id,err) 
+		  
 		  
 		  !Now Load Prtl Data 
           fname=trim(data_folder)//"/restart"//"/prtl_"//trim(str2)//"_"//trim(str1)

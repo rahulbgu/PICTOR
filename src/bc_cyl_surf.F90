@@ -5,13 +5,7 @@ module bc_cyl_surf
 	real(psn), dimension(:,:), allocatable :: lx,ly,arz
 	integer, dimension(:,:), allocatable :: bcell
 	integer :: ndiv=100
-	procedure(fld_ext),pointer   :: MagFld
-	abstract interface
-		subroutine fld_ext(x,y,z,fx,fy,fz)
-			import :: psn
-			real(psn) :: x,y,z,fx,fy,fz
-		end subroutine
-	end interface 
+	procedure(vector_global),pointer   :: MagFld
 contains 
 	
 	!------------------------------------------------------------------------------

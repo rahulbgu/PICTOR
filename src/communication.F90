@@ -1,15 +1,20 @@
 module communication 
      use parameters
      use vars
+	 use mpi_f08 
      implicit none 
-     include 'mpif.h'
-
-    integer :: mpi_psn,mpi_prtltype
+     !include 'mpif.h'
+	 
+	 
+	integer :: ierr ! used globally
+	type(MPI_DATATYPE) :: mpi_psn
+	type(MPI_DATATYPE) :: mpi_prtltype
      
 contains 
      subroutine StartMPI
           integer :: extent,nblocks
-          integer,dimension(0:7) :: oldtypes, blockcounts, offsets
+          type(MPI_DATATYPE), dimension(0:7) :: oldtypes
+		  integer , dimension(0:7) :: blockcounts, offsets
           call mpi_init(ierr)
           call mpi_comm_rank(MPI_COMM_WORLD,proc,ierr)
           call mpi_comm_size(MPI_COMM_WORLD,nproc,ierr)

@@ -4,6 +4,7 @@ module initialise
 	 use prtl_stats
 	 use reload 
 	 use memory
+	 use prtl_tag
 #ifdef OPEN_MP
      use omp_lib 
 #endif 	 
@@ -237,8 +238,8 @@ contains
 
      subroutine AllocatePrtlVars
 		  Nflvr=2 !by default the number of flv is 2, it is increased on demand in SetQbyM(help_setup.F90)
-          allocate(flvrqm(Nflvr),FlvrCharge(Nflvr),FlvrSaveFldData(Nflvr),FlvrType(Nflvr),FlvrSpare(Nflvr))
-          allocate(CurrentTagID(Nflvr),TagCounter(Nflvr))
+          allocate(flvrqm(Nflvr),FlvrCharge(Nflvr),FlvrSaveFldData(Nflvr),FlvrType(Nflvr),FlvrSaveRatio(Nflvr))
+          allocate(CurrentTagID(Nflvr))
           !Default values 
           flvrqm(1)=qmi
           flvrqm(2)=qme
@@ -248,12 +249,12 @@ contains
           FlvrSaveFldData(2)=1
           FlvrType(1)=0
           FlvrType(2)=0
-          FlvrSpare(1)=0
-          FlvrSpare(2)=0   
-	 	  CurrentTagID(1)=1+proc*NtagProcLen !initialise the value of current tag 
-	 	  CurrentTagID(2)=1+proc*NtagProcLen  
-		  TagCounter(1)=1
-		  TagCounter(2)=1
+          FlvrSaveRatio(1)=psave_ratio
+          FlvrSaveRatio(2)=psave_ratio   
+	 	  CurrentTagID(1)=0!1+proc*NtagProcLen !initialise the value of current tag 
+	 	  CurrentTagID(2)=0!1+proc*NtagProcLen  
+
+		  call InitPrtlTag
 	  
           call InitPrtlArr(prtl_arr_size)		  
 		  
@@ -274,7 +275,6 @@ contains
           allocate(var1tp(test_prtl_arr_size))
 		  qtp=0
 		  used_test_prtl_arr_size=0
-		  test_prtl_random_insert_index=1
 		  ntp=0  
      end subroutine AllocatePrtlVars
      
@@ -347,33 +347,7 @@ subroutine InitScanPrtlArr
 		  end if 
      end do 
      np=count
-	 prtl_random_insert_index=used_prtl_arr_size+1
 	 
-	 !Tag ions and electrons by default
-	 CurrentTagID(1)=1+proc*NtagProcLen !initialise the value of current tag
-	 CurrentTagID(2)=1+proc*NtagProcLen
-	 
-	 tag_fraction=1.0_psn/psave_ratio
-     if(psave_ratio.gt.0) then !tag the flv=1,2 particles by default
-          do n=1,prtl_arr_size
-               if(qp(n).ne.0) then
-				   call random_number(r1)
-				   if(r1.lt.tag_fraction) then
-					    if(flvp(n).eq.1) then   
-				            tagp(n)=CurrentTagID(1)
-				            if(mod(CurrentTagID(1),NtagProcLen).eq.0) CurrentTagID(1)=CurrentTagID(1)+NtagProcLen*(nproc-1)
-			                CurrentTagID(1)=CurrentTagID(1)+1
-						end if 
-					    if(flvp(n).eq.2) then   
-				            tagp(n)=CurrentTagID(2)
-				            if(mod(CurrentTagID(2),NtagProcLen).eq.0) CurrentTagID(2)=CurrentTagID(2)+NtagProcLen*(nproc-1)
-			                CurrentTagID(2)=CurrentTagID(2)+1
-						end if 						
-			       end if 
-		       end if
-          end do
-     end if
-
 end subroutine InitScanPrtlArr
 
 subroutine InitScanTestPrtlArr
@@ -386,7 +360,6 @@ subroutine InitScanTestPrtlArr
 		 end if 
     end do 
 	ntp=count
-    test_prtl_random_insert_index=used_test_prtl_arr_size+1
 end subroutine InitScanTestPrtlArr
 
 subroutine InitPrtlTransferInOutArr

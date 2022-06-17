@@ -11,7 +11,7 @@ contains
          real, dimension(0:nSubDomainsX-1) :: Max_TotalTime_column
          real :: time_temp, f
 
-          if(modulo(t,domain_change_period).ne.0) return
+          if(modulo(t,load_balance_period).ne.0) return
 		  
 !           exectime_grid=0
 !           dXdomain=xborders(procxind(proc)+1)-xborders(procxind(proc))
@@ -128,7 +128,7 @@ contains
 !          real, dimension(0:nSubDomainsX-1) :: Max_TotalTime_column
 !          real :: time_temp
 !
-!           if(modulo(t,domain_change_period).ne.0) return
+!           if(modulo(t,load_balance_period).ne.0) return
 !           exectime_grid=0
 !           dXdomain=xborders(procxind(proc)+1)-xborders(procxind(proc))
 !    		  exectime_grid(procxind(proc),procyind(proc),proczind(proc))=real(max(np,10))/dXdomain

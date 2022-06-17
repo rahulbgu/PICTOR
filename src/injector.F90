@@ -6,6 +6,7 @@ module injector
 	use memory
 	use initialise
 	use communication
+	use prtl_tag
 #ifdef gpu
     use fields_gpu
 	use initialise_gpu
@@ -18,44 +19,20 @@ module injector
 	
 	type InflowFldType
 		real(psn) :: Attenuate  
-		procedure(fld_ext), pointer, nopass  :: MagFld =>null()
-		procedure(fld_ext), pointer, nopass :: Drift =>null()
+		procedure(vector_global), pointer, nopass  :: MagFld =>null()
+		procedure(vector_global), pointer, nopass :: Drift =>null()
 		real(psn) :: vmax	
 	end type InflowFldType
 	
 	type InjPrtlType
 		integer :: side=0 ! 1: x,left; 2: x,right; 3: y,bottom; 4: y,top  
-		integer :: flvr1,flvr2
-		integer :: dist_type1, dist_type2! 1: thermal; 2: isotropic, use PDF table;  
-		
-		procedure(func_ext), pointer, nopass :: Den =>null()
-		procedure(fld_ext), pointer, nopass :: Drift =>null()
-		procedure(func_ext), pointer, nopass :: Temp1 =>null()
-		procedure(func_ext), pointer, nopass :: Temp2 =>null()
-		procedure(func_ext), pointer, nopass :: SpeedDist1 =>null()
-		procedure(func_ext), pointer, nopass :: SpeedDist2 =>null()
-		
-		integer :: TableSize=10000
-		real(psn), dimension(:), allocatable :: Table1, PDF_Table1
-		real(psn), dimension(:), allocatable :: Table2, PDF_Table2
-	
+		procedure(scalar_global), pointer, nopass :: Den =>null()
+		procedure(vector_global), pointer, nopass :: Drift =>null()		
+		integer, dimension(:), allocatable :: pid
 	end type InjPrtlType
 	
 	type(InjPrtlType), dimension(:), allocatable :: InjPrtl
 	type(InflowFldType), dimension(6) :: InflowFld ! 1: x,left; 2: x,right; 3: y,bottom; 4: y,top 
-	real(psn), dimension(6) :: inflowBC_speed = 0
-	
-	abstract interface
-	    function func_ext(x,y,z)
-	 	     import :: psn
-			 real(psn) :: x,y,z
-			 real(psn) :: func_ext
-	 	end function
-		subroutine fld_ext(x,y,z,fx,fy,fz)
-			import :: psn
-			real(psn) :: x,y,z,fx,fy,fz
-		end subroutine
-	end interface 
 	
 contains 
 !------------------------------------------	
@@ -110,8 +87,8 @@ contains
 	subroutine RefPrtlFluidFrameRight(flw)
 		type(InflowFldType) :: flw
 		real(psn) :: x1,vx,vy,vz,x0,y0,z0
-		real(psn) :: ox,oy,oz
-		real(dbpsn) :: xinj_local
+		real(dbpsn) :: ox,oy,oz
+		real(psn) :: xinj_local
 		integer :: n, i1
 
 		xinj_local = BC_Xmax_Prtl-xborders(procxind(proc))+3
@@ -172,10 +149,10 @@ contains
 	
 	
 	subroutine GetOxyz(ox,oy,oz)
-		real(psn) ::  ox,oy,oz ! x,y, and z poistion (global) of the lower left corner of this subdomain
-		ox=xborders(procxind(proc))-3
-		oy=yborders(procyind(proc))-3
-		oz=zborders(proczind(proc))-3
+		real(dbpsn) ::  ox,oy,oz ! x,y, and z poistion (global) of the lower left corner of this subdomain
+		ox=xborders(procxind(proc))-3.0_psn
+		oy=yborders(procyind(proc))-3.0_psn
+		oz=zborders(proczind(proc))-3.0_psn
 	end subroutine GetOxyz
 
 	!------------------------------------------------------------
@@ -187,7 +164,7 @@ contains
 	subroutine InjectNewPrtlPair(inj)
 		type(InjPrtlType) :: inj
 		real(psn) :: x1,x2,y1,y2,z1,z2,q1,q2
-		real(psn) :: xglobal,yglobal,zglobal
+		real(dbpsn) :: xglobal,yglobal,zglobal
 		integer :: nprtl_new,n,tag, side
 		real(psn) :: rnd_acpt,xlocal,ylocal,zlocal,ugamma,vgamma,wgamma
 		real(psn) :: vx,vy,vz
@@ -195,11 +172,10 @@ contains
 		logical   :: acpt
 
 		side = inj%side
-        q1=FlvrCharge(inj%flvr1)
-		q2=FlvrCharge(inj%flvr2)
 		x1 = xmin; x2 = xmax; y1 = ymin; y2 = ymax; z1 = zmin; z2 = zmax 
 		call SetInjDomain(inj,nprtl_new,x1,x2,y1,y2,z1,z2)
 		
+		if(used_prtl_arr_size+size(inj%pid)*nprtl_new.gt.prtl_arr_size) call ReshapePrtlArr(used_prtl_arr_size+size(inj%pid)*nprtl_new+1000000)
 		
 		do n=1,nprtl_new
 			 
@@ -226,39 +202,17 @@ contains
 			
 			if(acpt) then	
 				
-				! flvr1 particle
-				if(inj%dist_type1.eq.1) then 
-					Temp=inj%Temp1(xglobal,yglobal,zglobal)
-					call GetVelGamma_MaxBolt(Temp,ugamma,vgamma,wgamma)
-				else if(inj%dist_type1.eq.2) then 
-					call GetIsoVelGammaTable(inj%TableSize,inj%Table1,inj%PDF_Table1,ugamma,vgamma,wgamma) 
-			    end if  
-				call AddDriftVel(ugamma,vgamma,wgamma,vx,vy,vz)
-				call GetPrtlTag(tag,inj%flvr1)
-				call InsertParticleAt(used_prtl_arr_size+1,xlocal,ylocal,zlocal,ugamma,vgamma,wgamma,q1,tag,inj%flvr1,0.0_psn)
-				
-				! flvr2 particle
-				if(inj%dist_type2.eq.1) then 
-					Temp=inj%Temp2(xglobal,yglobal,zglobal)
-					call GetVelGamma_MaxBolt(Temp,ugamma,vgamma,wgamma)
-				else if(inj%dist_type2.eq.2) then 
-					call GetIsoVelGammaTable(inj%TableSize,inj%Table2,inj%PDF_Table2,ugamma,vgamma,wgamma) 
-			    end if   
-				call AddDriftVel(ugamma,vgamma,wgamma,vx,vy,vz)
-				call GetPrtlTag(tag,inj%flvr2)
-				call InsertParticleAt(used_prtl_arr_size+2,xlocal,ylocal,zlocal,ugamma,vgamma,wgamma,q2,tag,inj%flvr2,0.0_psn)
-				
-				used_prtl_arr_size=used_prtl_arr_size+2
-				np=np+2
-				
-			 end if 
-		 end do 
+				call InsertPrtl_PSP(inj%pid,xglobal,yglobal,zglobal, xlocal,ylocal,zlocal ) 
+								
+			end if 
+		end do 
 	end subroutine InjectNewPrtlPair
 	
 	subroutine SetInjDomain(inj,nprtl_new,x1,x2,y1,y2,z1,z2)
 		type(InjPrtlType) :: inj
 		real(psn) :: x1,x2,y1,y2,z1,z2
-		real(psn) :: pos, vmax, shift
+		real(dbpsn) :: pos
+		real(psn) :: vmax, shift
 		integer   :: nprtl_new
 		integer   :: side
 		
@@ -268,33 +222,33 @@ contains
 		shift = inflowBC_speed(side)*c
 		
 	   	if(side.eq.1) then 
-		     x1=max(pos-shift,real(xborders(procxind(proc)))) -xborders(procxind(proc))+3
-	   	     x2=min(pos+vmax*c,real(xborders(procxind(proc)+1))) -xborders(procxind(proc))+3
+		     x1=max(pos-shift,real(xborders(procxind(proc)),dbpsn)) -xborders(procxind(proc))+3
+	   	     x2=min(pos+vmax*c,real(xborders(procxind(proc)+1),dbpsn)) -xborders(procxind(proc))+3
 		end if
 		if(side.eq.2) then 
-		     x1=max(pos-vmax*c,real(xborders(procxind(proc)))) -xborders(procxind(proc))+3
-	   	     x2=min(pos+shift,real(xborders(procxind(proc)+1))) -xborders(procxind(proc))+3	  
+		     x1=max(pos-vmax*c,real(xborders(procxind(proc)),dbpsn)) -xborders(procxind(proc))+3
+	   	     x2=min(pos+shift,real(xborders(procxind(proc)+1),dbpsn)) -xborders(procxind(proc))+3	  
 		end if
 	   	if(side.eq.3) then 
-		     y1=max(pos-shift,real(yborders(procyind(proc)))) -yborders(procyind(proc))+3
-	   	     y2=min(pos+vmax*c,real(yborders(procyind(proc)+1))) -yborders(procyind(proc))+3
+		     y1=max(pos-shift,real(yborders(procyind(proc)),dbpsn)) -yborders(procyind(proc))+3
+	   	     y2=min(pos+vmax*c,real(yborders(procyind(proc)+1),dbpsn)) -yborders(procyind(proc))+3
 		end if
 		if(side.eq.4) then 
-		     y1=max(pos-vmax*c,real(yborders(procyind(proc)))) -yborders(procyind(proc))+3
-	   	     y2=min(pos+shift,real(yborders(procyind(proc)+1))) -yborders(procyind(proc))+3	 
+		     y1=max(pos-vmax*c,real(yborders(procyind(proc)),dbpsn)) -yborders(procyind(proc))+3
+	   	     y2=min(pos+shift,real(yborders(procyind(proc)+1),dbpsn)) -yborders(procyind(proc))+3	 
 		end if
 
 		nprtl_new= epc*max(0.0_psn,x2-x1)*max(0.0_psn,y2-y1)*max(0.0_psn,z2-z1)
 		if(nprtl_new.eq.0) return 
 		if(nprtl_new.lt.1000) call GetIntPoissonDist(real(real(nprtl_new),psn),nprtl_new)
-		if(used_prtl_arr_size+2*nprtl_new.gt.prtl_arr_size) call ReshapePrtlArr(prtl_arr_size+3*nprtl_new)
 		
 	end subroutine SetInjDomain
 	
 	subroutine GetNewPrtlPos(x1,x2,y1,y2,z1,z2,xlocal,ylocal,zlocal,xglobal,yglobal,zglobal)
-		real(psn) :: x1,x2,y1,y2,z1,z2
-		real(psn) :: xlocal,ylocal,zlocal,xglobal,yglobal,zglobal
-		real(psn) :: r1,r2,r3
+		real(psn)   :: x1,x2,y1,y2,z1,z2
+		real(psn)   :: xlocal,ylocal,zlocal
+		real(dbpsn) :: xglobal,yglobal,zglobal
+		real(psn)   :: r1,r2,r3
 	 		call random_number(r1)
 	 	    call random_number(r2)
 	 		call random_number(r3)
@@ -302,36 +256,16 @@ contains
 			ylocal=y1+r2*(y2-y1)
 			zlocal=z1+r3*(z2-z1)
 			
-			xglobal=xlocal+xborders(procxind(proc))-3
-			yglobal=ylocal+yborders(procyind(proc))-3
+			xglobal=xlocal+(xborders(procxind(proc))-3)
+			yglobal=ylocal+(yborders(procyind(proc))-3)
 #ifndef twoD			
-			zglobal=zlocal+zborders(proczind(proc))-3
+			zglobal=zlocal+(zborders(proczind(proc))-3)
 #else
             zglobal=zlocal
 #endif 	
 
 	end subroutine GetNewPrtlPos
 			
-
-	!------------------------------------------------------------
-	!subroutine to genrate unique tag for particles, warning:: tagging start from 1 if simulation is restarted
-	!may not work in some cases when large number of particles are tagged 
-	!------------------------------------------------------------
-	subroutine GetPrtlTag(tag,FlvID)
-		implicit none
-		integer :: tag,FlvID
-	
-		if(TagCounter(FlvID).gt.psave_ratio) TagCounter(FlvID)=1
-		if(TagCounter(FlvID).eq.1) then  
-			tag=CurrentTagID(FlvID)
-		    if(mod(CurrentTagID(FlvID),NtagProcLen).eq.0) CurrentTagID(FlvID)=CurrentTagID(FlvID)+NtagProcLen*(nproc-1)
-	        CurrentTagID(FlvID)=CurrentTagID(FlvID)+1
-	    else
-			tag=0
-		end if	
-		TagCounter(FlvID)=TagCounter(FlvID)+1
-	end subroutine GetPrtlTag
-
 	!------------------------------------------	
 	! EM Field Boundary conditions for the inflow boundaries
 	!------------------------------------------	
@@ -354,9 +288,10 @@ contains
 	!----------------------------------------------------------------------------------------------
 	subroutine InflowBC_SetMagFld(pos,side)
 		type(InflowFldType) :: flw
-		real(psn):: pos
+		real(dbpsn):: pos
 		integer  :: side
-		real(psn):: b_x,b_y,b_z,x0,y0,z0,xg,yg,zg
+		real(psn):: b_x,b_y,b_z
+		real(dbpsn) :: x0,y0,z0,xg,yg,zg
 		integer :: i,j,k
 		
 		flw = InflowFld(side)
@@ -372,19 +307,19 @@ contains
 	          do j=1,my
 				  do i=1,mx
 					  
-					  xg = real(i,psn)+x0; yg = real(j+0.5_psn,psn)+y0; zg = real(k+0.5_psn,psn)+z0;
+					  xg = i+x0; yg = j+0.5_dbpsn+y0; zg = k+0.5_dbpsn+z0;
 					  if(exterior(xg,yg,zg,pos,side)) then
 						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
 						  Bx(i,j,k)=b_x
 					  end if 
 
-					  xg = real(i+0.5_psn,psn)+x0; yg = real(j,psn)+y0; zg = real(k+0.5_psn,psn)+z0;
+					  xg = i+0.5_dbpsn+x0; yg = j+y0; zg = k+0.5_dbpsn+z0;
 					  if(exterior(xg,yg,zg,pos,side)) then
 						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
 						  By(i,j,k)=b_y
 					  end if 
 
-					  xg = real(i+0.5_psn,psn)+x0; yg = real(j+0.5_psn,psn)+y0; zg = real(k,psn)+z0;
+					  xg = i+0.5_dbpsn+x0; yg = j+0.5_dbpsn+y0; zg = k+z0;
 					  if(exterior(xg,yg,zg,pos,side)) then
 						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
 						  Bz(i,j,k)=b_z
@@ -398,9 +333,10 @@ contains
 	
 	subroutine InflowBC_SetElcFld(pos,side)
 		type(InflowFldType) :: flw
-		real(psn):: pos
+		real(dbpsn):: pos
 		integer  :: side
-		real(psn)::  b_x,b_y,b_z,vx,vy,vz,x0,y0,z0,xg,yg,zg 
+		real(psn)::  b_x,b_y,b_z,vx,vy,vz
+		real(dbpsn) :: xg,yg,zg, x0,y0,z0
 		integer :: i,j,k
 		
 		flw = InflowFld(side)
@@ -416,21 +352,21 @@ contains
 	          do j=1,my
 				  do i=1,mx
 		  
-					  xg = real(i+0.5_psn,psn)+x0; yg = real(j,psn)+y0; zg = real(k,psn)+z0;
+					  xg = i+0.5_dbpsn+x0; yg = j+y0; zg = k+z0;
 					  if(exterior(xg,yg,zg,pos,side)) then 
 						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
 						  call flw%Drift(xg,yg,zg,vx,vy,vz)
 						  Ex(i,j,k)= vz * b_y - vy * b_z 
 					  end if
 
-					  xg = real(i,psn)+x0; yg = real(j+0.5_psn,psn)+y0; zg = real(k,psn)+z0;
+					  xg = i+x0; yg = j+0.5_dbpsn+y0; zg = k+z0;
 					  if(exterior(xg,yg,zg,pos,side)) then
 						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
 						  call flw%Drift(xg,yg,zg,vx,vy,vz)
 						  Ey(i,j,k)= vx * b_z - vz * b_x
 					  end if 
 
-					  xg = real(i,psn)+x0; yg = real(j,psn)+y0; zg = real(k+0.5+psn,psn)+z0;
+					  xg = i+x0; yg = j+y0; zg = k+0.5_dbpsn+z0;
 					  if(exterior(xg,yg,zg,pos,side)) then 
 						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
 						  call flw%Drift(xg,yg,zg,vx,vy,vz)
@@ -444,7 +380,7 @@ contains
 	end subroutine InflowBC_SetElcFld
 	
 	logical function exterior(xg,yg,zg,pos,side)
-		real(psn) :: xg,yg,zg,pos
+		real(dbpsn) :: xg,yg,zg,pos
 		integer :: side
 		exterior = .false.
 		if(side.eq.1 .and. xg.le. pos) exterior = .true. 
@@ -454,7 +390,7 @@ contains
 	end function exterior
 	
 	logical function outside_subdomain(x0,y0,z0,pos,side)
-		real(psn) :: pos, x0, y0, z0
+		real(dbpsn) :: pos, x0, y0, z0
 		integer :: side
 		outside_subdomain = .false.
 		if(side.eq.1 .and. pos-x0 .lt.  1) outside_subdomain = .true. 
@@ -470,8 +406,9 @@ contains
 	subroutine AttenuateFld(flw,side)
 		type(InflowFldType) :: flw
 		integer  :: side
-		real(psn):: b_x,b_y,b_z,vx,vy,vz,x0,y0,z0,xg,yg,zg, f0
-		real(psn):: pos, dl
+		real(psn):: b_x,b_y,b_z,vx,vy,vz, f0
+		real(dbpsn) :: x0,y0,z0,xg,yg,zg
+		real(dbpsn):: pos, dl
 	    integer :: i,j,k
 		
 		x0=xborders(procxind(proc))-3
@@ -493,7 +430,7 @@ contains
 	          do j=1,my
 	               do i=1,mx
 					   
- 					  xg = real(i+0.5_psn,psn)+x0; yg = real(j,psn)+y0; zg = real(k,psn)+z0;
+ 					  xg = i+0.5_dbpsn+x0; yg = j+y0; zg = k+z0;
  					  if(atnn_domain(xg,yg,zg,pos,side,dl)) then 
  						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
  						  call flw%Drift(xg,yg,zg,vx,vy,vz)
@@ -501,7 +438,7 @@ contains
 						  Ex(i,j,k)=(Ex(i,j,k)-f0)*AttenFactor(xg,yg,zg,pos,side,dl)+f0
  					  end if
 
- 					  xg = real(i,psn)+x0; yg = real(j+0.5_psn,psn)+y0; zg = real(k,psn)+z0;
+ 					  xg = i+x0; yg = j+0.5_dbpsn+y0; zg = k+z0;
  					  if(atnn_domain(xg,yg,zg,pos,side,dl)) then
  						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
  						  call flw%Drift(xg,yg,zg,vx,vy,vz)
@@ -509,7 +446,7 @@ contains
 						  Ey(i,j,k)=(Ey(i,j,k)-f0)*AttenFactor(xg,yg,zg,pos,side,dl)+f0
  					  end if 
 
- 					  xg = real(i,psn)+x0; yg = real(j,psn)+y0; zg = real(k+0.5+psn,psn)+z0;
+ 					  xg = i+x0; yg = j+y0; zg = k+0.5_dbpsn+z0;
  					  if(atnn_domain(xg,yg,zg,pos,side,dl)) then 
  						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
  						  call flw%Drift(xg,yg,zg,vx,vy,vz)
@@ -517,19 +454,19 @@ contains
 						  Ez(i,j,k)=(Ez(i,j,k)-f0)*AttenFactor(xg,yg,zg,pos,side,dl)+f0
  					  end if 
 			  
- 					  xg = real(i,psn)+x0; yg = real(j+0.5_psn,psn)+y0; zg = real(k+0.5_psn,psn)+z0;
+ 					  xg = i+x0; yg = j+0.5_dbpsn+y0; zg = k+0.5_dbpsn+z0;
  					  if(atnn_domain(xg,yg,zg,pos,side,dl)) then
  						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
 						  Bx(i,j,k)=(Bx(i,j,k)-b_x)*AttenFactor(xg,yg,zg,pos,side,dl)+b_x
  					  end if 
 
- 					  xg = real(i+0.5_psn,psn)+x0; yg = real(j,psn)+y0; zg = real(k+0.5_psn,psn)+z0;
+ 					  xg = i+0.5_dbpsn+x0; yg = j+y0; zg = k+0.5_dbpsn+z0;
  					  if(atnn_domain(xg,yg,zg,pos,side,dl)) then
  						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
 						  By(i,j,k)=(By(i,j,k)-b_y)*AttenFactor(xg,yg,zg,pos,side,dl)+b_y
  					  end if 
 
- 					  xg = real(i+0.5_psn,psn)+x0; yg = real(j+0.5_psn,psn)+y0; zg = real(k,psn)+z0;
+ 					  xg = i+0.5_dbpsn+x0; yg = j+0.5_dbpsn+y0; zg = k+z0;
  					  if(atnn_domain(xg,yg,zg,pos,side,dl)) then
  						  call flw%MagFld(xg,yg,zg,b_x,b_y,b_z)
 						  Bz(i,j,k)=(Bz(i,j,k)-b_z)*AttenFactor(xg,yg,zg,pos,side,dl)+b_z
@@ -547,7 +484,7 @@ contains
 	
 	function AttenFactor(x,y,z,pos,side,dl)
 		integer   :: side
-		real(psn) :: x,y,z,pos,dl
+		real(dbpsn) :: x,y,z,pos,dl
 		real(psn) :: AttenFactor
 		
 		select case (side)
@@ -565,7 +502,7 @@ contains
 	end function AttenFactor
 	
 	logical function atnn_domain(xg,yg,zg,pos,side,dl)
-		real(psn) :: xg,yg,zg,pos,dl
+		real(dbpsn) :: xg,yg,zg,pos,dl
 		integer :: side
 		atnn_domain = .false.
 		select case (side)
@@ -580,7 +517,7 @@ contains
 		end select
 	end function atnn_domain
 	
-	real(psn) function inflow_pos_prtl(side)
+	real(dbpsn) function inflow_pos_prtl(side)
 		integer :: side
 		inflow_pos_prtl = 0 
 		if(side.eq.1) inflow_pos_prtl = BC_Xmin_Prtl
@@ -589,7 +526,7 @@ contains
 		if(side.eq.4) inflow_pos_prtl = BC_Ymax_Prtl
     end function inflow_pos_prtl
 	
-	real(psn) function inflow_pos_fld(side)
+	real(dbpsn) function inflow_pos_fld(side)
 		integer :: side
 		inflow_pos_fld = 0 
 		if(side.eq.1) inflow_pos_fld = BC_Xmin_Fld
@@ -672,7 +609,7 @@ contains
 	    real(psn), dimension(mx) :: mag1D_slice,mag1D_this_proc
 		real(psn), dimension(0:nproc-1) :: mag_peak_all_proc
 		integer, dimension(0:nproc-1)   :: xpeak_all_proc
-	    integer, dimension(MPI_STATUS_SIZE) :: mpi_stat 
+		type(MPI_Status) :: mpi_stat    
 		integer :: mpi_err
 		
 		Xshock = 0 
@@ -794,8 +731,8 @@ subroutine EnlargeDomainRight
 		mx = mx + inc
 		
 		!Initialise EM Fld in the newly created domain
-		call InflowBC_SetMagFld(real(BC_Xmax_Fld,psn),2)
-		call InflowBC_SetElcFld(real(BC_Xmax_Fld,psn),2)
+		call InflowBC_SetMagFld(BC_Xmax_Fld,2)
+		call InflowBC_SetElcFld(BC_Xmax_Fld,2)
 	
 		call InitPrtlBoundaries
 		call ReshapeAuxFld

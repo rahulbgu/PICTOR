@@ -6,11 +6,19 @@ module vars
      use hdf5
      implicit none
      
-     integer, parameter :: dbpsn=kind(1.0d0)
-	 logical            :: restart=.false. !is set to .true. at the begining if a saved restart data is found
-     integer :: mx,my,mz
+
+	 
+	 
+     integer, parameter   :: dbpsn=kind(1.0d0)
+	 logical              :: restart=.false. !is changed to .true. if a saved restart data is found
+     integer              :: mx,my,mz
+	 real(psn), parameter :: me=1.0_psn ! dimensionless electron mass (normalised to the electron mass) of electrons = 1 by choice
+	 real(psn), parameter :: mi=mi_me ! dimensionless mass of ions (normalised to the electron mass) = mi_me
      
-     real(psn),dimension(:,:,:), allocatable :: Ex,Ey,Ez,Bx,By,Bz
+     !----------------------------------------------------
+     ! Grid variables 
+     !----------------------------------------------------
+	 real(psn),dimension(:,:,:), allocatable :: Ex,Ey,Ez,Bx,By,Bz
      real(psn),dimension(:,:,:), allocatable :: Jx,Jy,Jz
      real(psn) ::Bx_ext0,By_ext0,Bz_ext0! constant external magnetic field 
      real(psn),dimension(:,:,:), allocatable :: FilteredEx,FilteredEy,FilteredEz
@@ -60,7 +68,7 @@ module vars
 	 real(psn), dimension(:),allocatable :: FlvrCharge
      integer  , dimension(:),allocatable :: FlvrSaveFldData
      integer  , dimension(:),allocatable :: FlvrType! By default, 0: simulation particle 1: Test Particle
-     integer  , dimension(:),allocatable :: FlvrSpare 
+     integer  , dimension(:),allocatable :: FlvrSaveRatio 
      integer        :: Nflvr ! Number of plasma species 
      integer        :: Nelc  !Initial number of electrons, defined in initialise.F90  
 #ifdef longX
@@ -82,7 +90,8 @@ module vars
      !----------------------------------------------------
      !variables used to save data 
      !----------------------------------------------------
-     integer, dimension(:), allocatable :: CurrentTagID,TagCounter !UsedTagID0 is not needed
+ 	 integer, pointer, asynchronous :: TagBlock(:) ! Currently Available Tag Block (INT) to be used on any proc.
+	 integer, dimension(:), allocatable :: CurrentTagID ! tag counter
      integer                            :: NtagProcLen=100
      real     ,dimension(:),allocatable :: pdata_real
      integer  ,dimension(:),allocatable :: pdata_int
@@ -115,11 +124,9 @@ module vars
      !integer :: i,j,k,l,m,n
      integer :: prtl_arr_size! size of particle array
      integer :: used_prtl_arr_size !maximum index of an active particle in the particle array
-	 integer :: prtl_random_insert_index ! index to insert a random particle that is out of spatial order 
      integer :: np ! total number of active test particles on this processor
      integer :: test_prtl_arr_size! size of test particle array
      integer :: used_test_prtl_arr_size !maximum index of an active test particle in the particle array
-	 integer :: test_prtl_random_insert_index ! index to insert an random test particle that is out of spatial order 
      integer :: ntp ! total number of active test particles on this processor  
  	 integer :: initialised_prtl_ind=0 !used in initialise routines to keep track of already used slots
 	 integer :: prtl_arr_size0=10000000 !max size of the prtl arrays at the very first memory allocation, size is dynamically adjusted later on
@@ -132,6 +139,7 @@ module vars
      !varaibles to set boundary conditions for field and particles
      !------------------------------------------------------- 
 	 logical :: inflowBC = .false.
+	 real(psn), dimension(6) :: inflowBC_speed = 0
      real(dbpsn) :: BC_Xmin_Prtl, BC_Xmax_Prtl, BC_Ymin_Prtl, BC_Ymax_Prtl, BC_Zmin_Prtl, BC_Zmax_Prtl
 	 real(dbpsn)   :: BC_Xmin_Fld, BC_Xmax_Fld, BC_Ymin_Fld, BC_Ymax_Fld, BC_Zmin_Fld, BC_Zmax_Fld
 	 character (len=4) :: BC_Xmin_Fld_Type, BC_Xmax_Fld_Type, BC_Ymin_Fld_Type, BC_Ymax_Fld_Type, BC_Zmin_Fld_Type, BC_Zmax_Fld_Type
@@ -139,7 +147,7 @@ module vars
      !----------------------------------------------------------
      !variable used for communication 
      !----------------------------------------------------------
-     integer :: ierr,proc,nproc,lproc,rproc,tproc,bproc,uproc,dproc!l=left,r=right,t=top,b=bottom,3D: u=up(+z),d=down(-z)
+     integer :: proc,nproc,lproc,rproc,tproc,bproc,uproc,dproc!l=left,r=right,t=top,b=bottom,3D: u=up(+z),d=down(-z)
      !---------------------------------------------------------
      !variables used for read and write (HDF5)
      !---------------------------------------------------------
@@ -241,5 +249,42 @@ module vars
 	 integer, dimension(:,:,:), allocatable :: usc_fdtd_bx, usc_fdtd_by, usc_fdtd_bz ! 0: regular fdtd; positive integer, use the USC method, integer -> index in the wt. list 
 	 real(psn), dimension(:,:,:), allocatable :: usc_norm_bx, usc_norm_by, usc_norm_bz ! matrix to store normalisations for the wts
 	 real(psn), dimension(:,:,:), allocatable :: usc_db1, usc_db2
+	 
+     !-------------------------------------------------------------------
+     !Interface defining structure of the user defined fucntions and subroutines
+     !-------------------------------------------------------------------
+ 	 abstract interface
+ 	     function scalar_global(x,y,z)
+ 	 	     import :: psn, dbpsn
+ 			 real(dbpsn) :: x,y,z
+ 			 real(psn) :: scalar_global
+ 	 	 end function
+ 		 subroutine vector_global(x,y,z,fx,fy,fz)
+ 			import :: psn, dbpsn
+ 			real(dbpsn) :: x,y,z
+ 			real(psn)   :: fx,fy,fz
+ 		 end subroutine
+ 	     function func1D(x)
+ 	 	     import :: psn
+ 			 real(psn) :: x
+ 			 real(psn) :: func1D
+ 	 	 end function
+ 	 end interface 
+     !-------------------------------------------------------------------
+     ! Data Type to define properties of Phase-Space for a given species 
+     !-------------------------------------------------------------------
+	 type :: PhaseSpaceProperty
+		 integer :: Flvr
+ 		 procedure(scalar_global), pointer, nopass :: Density =>null()
+ 		 procedure(vector_global), pointer, nopass :: DriftVelocity =>null()
+ 		 procedure(scalar_global), pointer, nopass :: Temperature =>null()
+ 		 procedure(func1D), pointer, nopass :: SpeedDist =>null()
+		 real(psn) :: Vmax
+ 		 real(psn), dimension(:), allocatable :: Table, PDF_Table
+	 end type PhaseSpaceProperty
+	 integer :: PDF_TableSize=10000
+	 
+	 type(PhaseSpaceProperty), dimension(100) :: PSP_list
+	 integer :: used_PSP_list_size = 0
   
 end module vars

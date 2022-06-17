@@ -12,7 +12,7 @@ contains
 !----------------------------------------------------------------------------------------------
      
      subroutine SendRecvPrtlSize
-          integer :: stat(MPI_STATUS_SIZE)     
+		  type(MPI_Status) :: stat    
           integer :: mpi_err          
           call MPI_SENDRECV(lpcross,1,MPI_INTEGER,lproc,0,rinp_count,1,MPI_INTEGER,rproc,0,MPI_COMM_WORLD,stat,mpi_err)
           call MPI_SENDRECV(rpcross,1,MPI_INTEGER,rproc,1,linp_count,1,MPI_INTEGER,lproc,1,MPI_COMM_WORLD,stat,mpi_err)          
@@ -33,7 +33,7 @@ contains
 #endif    
      end subroutine SendRecvPrtlSize
      subroutine SendRecvPrtl
-          integer :: stat(MPI_STATUS_SIZE)     
+		  type(MPI_Status) :: stat      
           integer :: mpi_err     
 
           call MPI_SENDRECV(loutp(1:lcross),lcross,mpi_prtltype,lproc,0,rinp(1:rinp_count+rintp_count),rinp_count+rintp_count,mpi_prtltype,rproc,0,MPI_COMM_WORLD,stat,mpi_err)
@@ -55,7 +55,7 @@ contains
 	 
      
      subroutine ExchangeYZEdgeCurrent
-          integer :: stat(MPI_STATUS_SIZE)
+		  type(MPI_Status) :: stat  
           integer :: dcount1,mpi_err
           dcount1=3*my*mz
           call MPI_SENDRECV(Jx(1:3,:,:),dcount1,mpi_psn,lproc,0,buff_rJx,dcount1,mpi_psn,rproc,0,MPI_COMM_WORLD,stat,mpi_err)
@@ -71,7 +71,7 @@ contains
 #endif 		     
      end subroutine ExchangeYZEdgeCurrent
      subroutine ExchangeZXEdgeCurrent
-          integer :: stat(MPI_STATUS_SIZE)
+		  type(MPI_Status) :: stat  
           integer :: dcount1,mpi_err
           dcount1=3*mx*mz
           call MPI_SENDRECV(Jx(:,1:3,:),dcount1,mpi_psn,bproc,0,buff_tJx,dcount1,mpi_psn,tproc,0,MPI_COMM_WORLD,stat,mpi_err)
@@ -84,7 +84,7 @@ contains
           call MPI_SENDRECV(Jz(:,my-2:my,:),dcount1,mpi_psn,tproc,1,buff_bJz,dcount1,mpi_psn,bproc,1,MPI_COMM_WORLD,stat,mpi_err)     
      end subroutine ExchangeZXEdgeCurrent
      subroutine ExchangeXYEdgeCurrent
-          integer :: stat(MPI_STATUS_SIZE)
+		  type(MPI_Status) :: stat  
           integer :: dcount1,mpi_err
           dcount1=3*mx*my
           call MPI_SENDRECV(Jx(:,:,1:3),dcount1,mpi_psn,dproc,0,buff_uJx,dcount1,mpi_psn,uproc,0,MPI_COMM_WORLD,stat,mpi_err)
@@ -101,7 +101,7 @@ contains
      subroutine ExchangeYZEdgeField(Fldx,Fldy,Fldz)
           real(psn), dimension(mx,my,mz) :: Fldx,Fldy,Fldz 
           integer :: dcount1,dcount2,mpi_err
-          integer :: stat(MPI_STATUS_SIZE)
+		  type(MPI_Status) :: stat  
 		  dcount1=3*my*mz
           dcount2=2*my*mz
           call MPI_SENDRECV(Fldx(3:5,:,:),dcount1,mpi_psn,lproc,1,Fldx(mx-2:mx,:,:),dcount1,mpi_psn,rproc,1,MPI_COMM_WORLD,stat,mpi_err)
@@ -120,7 +120,7 @@ contains
      subroutine ExchangeZXEdgeField(Fldx,Fldy,Fldz)
           real(psn), dimension(mx,my,mz) :: Fldx,Fldy,Fldz 
           integer :: dcount1,dcount2,mpi_err
-          integer :: stat(MPI_STATUS_SIZE)
+          type(MPI_Status) :: stat  
           dcount1=3*mx*mz
           dcount2=2*mx*mz
           call MPI_SENDRECV(Fldx(:,3:5,:),dcount1,mpi_psn,bproc,1,Fldx(:,my-2:my,:),dcount1,mpi_psn,tproc,1,MPI_COMM_WORLD,stat,mpi_err)
@@ -135,7 +135,7 @@ contains
      subroutine ExchangeXYEdgeField(Fldx,Fldy,Fldz)
           real(psn), dimension(mx,my,mz) :: Fldx,Fldy,Fldz 
           integer :: dcount1,dcount2,mpi_err
-          integer :: stat(MPI_STATUS_SIZE)
+          type(MPI_Status) :: stat  
           dcount1=3*mx*my
           dcount2=2*mx*my
           call MPI_SENDRECV(Fldx(:,:,3:5),dcount1,mpi_psn,dproc,1,Fldx(:,:,mz-2:mz),dcount1,mpi_psn,uproc,1,MPI_COMM_WORLD,stat,mpi_err)
@@ -150,7 +150,7 @@ contains
 
     !The following subroutines are used to comminucate only the immediate outer current layer 
      subroutine ExchangeYZEdgeCurrent1(J1)
-          integer :: stat(MPI_STATUS_SIZE)
+          type(MPI_Status) :: stat  
           integer :: dcount1,mpi_err
           real(psn),dimension(mx,my,mz) :: J1
           dcount1=my*mz
@@ -160,7 +160,7 @@ contains
      end subroutine ExchangeYZEdgeCurrent1
      
      subroutine ExchangeZXEdgeCurrent1(J1)
-          integer :: stat(MPI_STATUS_SIZE)
+          type(MPI_Status) :: stat  
           integer :: dcount1,mpi_err
           real(psn),dimension(mx,my,mz) :: J1
           dcount1=mx*mz
@@ -169,7 +169,7 @@ contains
      end subroutine ExchangeZXEdgeCurrent1
      
      subroutine ExchangeXYEdgeCurrent1(J1)
-          integer :: stat(MPI_STATUS_SIZE)
+          type(MPI_Status) :: stat  
           integer :: dcount1,mpi_err
           real(psn),dimension(mx,my,mz) :: J1
           dcount1=mx*my
@@ -180,14 +180,14 @@ contains
      
      !the following subroutines are useful in case of smoothening the EM field 
      subroutine ExchangeYZEdgeEMFld1(Fld) !Not needed 
-          integer :: stat(MPI_STATUS_SIZE)
+          type(MPI_Status) :: stat  
           real(psn),dimension(mx,my,mz) :: Fld
           call MPI_SENDRECV(Fld(3:3,:,:),my*mz,mpi_psn,lproc,0,Fld(mx-2:mx-2,:,:),my*mz,mpi_psn,rproc,0,MPI_COMM_WORLD,stat,ierr)
           call MPI_SENDRECV(Fld(mx-3:mx-3,:,:),my*mz,mpi_psn,rproc,1,Fld(2:2,:,:),my*mz,mpi_psn,lproc,1,MPI_COMM_WORLD,stat,ierr)
      end subroutine ExchangeYZEdgeEMFld1
      
      subroutine ExchangeZXEdgeEMFld1(Fld) !not needed 
-          integer :: stat(MPI_STATUS_SIZE)
+          type(MPI_Status) :: stat  
           real(psn),dimension(mx,my,mz) :: Fld
           call MPI_SENDRECV(Fld(:,3:3,:),mx*mz,mpi_psn,bproc,0,Fld(:,my-2:my-2,:),mx*mz,mpi_psn,tproc,0,MPI_COMM_WORLD,stat,ierr)
           call MPI_SENDRECV(Fld(:,my-3:my-3,:),mx*mz,mpi_psn,tproc,1,Fld(:,2:2,:),mx*mz,mpi_psn,bproc,1,MPI_COMM_WORLD,stat,ierr)     
