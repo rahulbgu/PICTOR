@@ -13,14 +13,15 @@ contains
 !
 !--------------------------------------------------------------------------------------------	
 	subroutine  AdjustInjectorPositionFromShock(Start, Freq, MinDist, MaxDist, MinInjSpeed, BpeakXmin)
-		integer :: Start, Freq, MinDist, MaxDist, BpeakXmin
+		integer :: Start, Freq
+		real(psn) :: MinDist, MaxDist, BpeakXmin
 		real(psn) :: MinInjSpeed, x1, x2, dist, x3
 		integer :: Xshock 
 	
 		if(modulo(t,Freq).ne.0) return
 		if(t.lt.Start) return
 	
-		call FindPosX_BmagPeak(Xshock, BpeakXmin)
+		call FindPosX_BmagPeak(Xshock, int(BpeakXmin))
 	
 		!print*,'Xshock is',Xshock
 	
@@ -35,61 +36,6 @@ contains
 		bc_face(2)%speed = min(bc_face(2)%speed, 1.0_psn)
 		bc_face(2)%speed = max(bc_face(2)%speed, MinInjSpeed) 
 	end subroutine  AdjustInjectorPositionFromShock
-
-
-!--------------------------------------------------------------------------------------------
-!
-!        Adjust speed of the left and right boundaries according to the prescribed distance from the laser pulse
-!        Position of the laser is defined by maximum of the magentic field magnitude
-!--------------------------------------------------------------------------------------------	
-	subroutine  AdjustBoundarySpeedWakeField(Axis, Freq, DistLeft, DistRight, MinSpeedLeft, MinSpeedRight, minEmag2)
-		integer :: Freq
-		real(psn) :: DistLeft, DistRight, MinSpeedLeft, MinSpeedRight
-		real(psn) :: minEmag2
-		real(psn) :: x1, x2, dist, x3, MinDist, MaxDist
-		integer :: xpeak, axis_ind
-		character (len=*) :: Axis
-
-		if(modulo(t,Freq).ne.0) return
-		
-		axis_ind = 0 
-		if(Axis.eq.'x') then 
-			call FirstOvershootFromRightX(Ex,Ey,Ez,minEmag2,xpeak)
-		end if
-	    if(Axis.eq.'z') then 
-			axis_ind = 2
-			call FirstOvershootFromRightZ(Ex,Ey,Ez,minEmag2,xpeak)
-		end if
-
-	
-		
-		!right boundary
-		MinDist = DistRight
-		MaxDist = DistRight + c_ompe
-
-		dist = bc_face(2*axis_ind+2)%pos_prtl - xpeak
-		x3 = (MaxDist - MinDist)/3.0
-		x1 = MinDist + x3
-		x2 = MaxDist - x3
-
-		if(dist .lt. x1) bc_face(2*axis_ind+2)%speed = min(bc_face(2*axis_ind+2)%speed + (x1 - dist)/x3, 1.05_psn) 
-		if(dist .gt. x2) bc_face(2*axis_ind+2)%speed = max(bc_face(2*axis_ind+2)%speed - (dist - x2)/x3, MinSpeedRight)
-
-		if(proc.eq.0) print*,'laser pulse front is:',xpeak,'bc speed 2 ',bc_face(2*axis_ind+2)%speed,'dist',dist,'MinDist',MinDist
-
-		!left bundary
-		MinDist = DistLeft
-		MaxDist = DistLeft + c_ompe
-		dist = xpeak - bc_face(2*axis_ind+1)%pos_prtl 
-		x3 = (MaxDist - MinDist)/3.0
-		x1 = MinDist + x3
-		x2 = MaxDist - x3
-		
-		if(dist .lt. x1) bc_face(2*axis_ind+1)%speed = max(bc_face(2*axis_ind+1)%speed - (x1 - dist)/x3, MinSpeedLeft) 
-		if(dist .gt. x2) bc_face(2*axis_ind+1)%speed = min(bc_face(2*axis_ind+1)%speed + (dist - x2)/x3, 1.05_psn)
-		
-		if(proc.eq.0) print*,'laser pulse front is:',xpeak,'bc speed 1 ',bc_face(2*axis_ind+1)%speed,'dist',dist,'MinDist',MinDist
-	end subroutine  AdjustBoundarySpeedWakeField
 
 
 !--------------------------------------------------------------------------------------------
@@ -113,7 +59,7 @@ contains
 #endif
         allocate( mag1D( xborders(nSubDomainsX)-xborders(0)) )
 
-        call SumFldX1D(Bx,By,Bz,BpeakXmin,mag1D)
+        call SumFld1D(Bx,By,Bz,BpeakXmin,mag1D,0)
 		
 		if(kproc.eq.0) then
 
@@ -141,40 +87,66 @@ contains
 !   global 1D array - sum all elements along y,z direction
 !   Note :: 1) indepLBaxis must be along the x-axis to use this routine
 !           2) the following routine produces on global 1D arrays on krpoc = 0 only
-!              further processing should be done only on kproc=0 and then comm. to other proc.      
+!              further processing should be done only on kproc=0 and then comm. to other proc.	       
 !--------------------------------------------------------------------------------------------	
 
-	subroutine SumFldX1D(Fldx,Fldy,Fldz,sum_xmin,fld1D)
+	subroutine SumFld1D(Fldx,Fldy,Fldz,sum_xmin,fld1D,axis)
+		integer, intent(in)            :: axis ! sum transverse to the axis
 		real(psn), dimension(mx,my,mz) :: Fldx, Fldy, Fldz
-	    real(dbpsn), dimension(mx) :: fld1D_this_proc
+	    real(dbpsn), dimension(:), allocatable :: fld1D_this_proc
 		real(dbpsn), dimension(:)              :: fld1D
 		real(dbpsn), dimension(:), allocatable :: fld1D_recv
-	    integer :: i,j,k, k1
+	    integer :: i,j,k, k1 , b1,b2, nx_axis, mx_axis
 		integer :: sum_xmin, sum_xmin_local, mx_recv, off 
 		type(MPI_Status) :: mpi_stat
+
+		!set local variables based on the axis
+		select case(axis)
+		case(0)
+			b1 = xborders(procxind)
+			b2 = xborders(procxind+1)
+			nx_axis = xborders(nSubDomainsX) -xborders(0)
+		case(1)
+			b1 = yborders(procyind)
+			b2 = yborders(procyind+1)
+			nx_axis = yborders(nSubDomainsY) -yborders(0)
+		case(2)
+			b1 = zborders(proczind)
+			b2 = zborders(proczind+1)
+			nx_axis = zborders(nSubDomainsZ) -zborders(0)
+		end select
+		mx_axis = b2 - b1 +5
 		
 		
 		!first compute the local peak and its location
+		allocate(fld1D_this_proc(b2-b1+5))
 		fld1D_this_proc=0
-	    do i=3,mx-3
 #ifndef twoD
-	          do k=3,mz-3
+	    do k=3,mz-3
 #else
-	          do k=1,1
+	    do k=1,1
 #endif
-	                do j=3,my-3
-	                    fld1D_this_proc(i)=fld1D_this_proc(i)+(Fldx(i,j,k)**2+Fldy(i,j,k)**2+Fldz(i,j,k)**2)
-	                end do
-	          end do
-		 end do
+	        do j=3,my-3
+				do i=3,mx-3
+					select case(axis)
+					case(0)
+	                	fld1D_this_proc(i)=fld1D_this_proc(i)+(Fldx(i,j,k)**2+Fldy(i,j,k)**2+Fldz(i,j,k)**2)
+					case(1)
+						fld1D_this_proc(j)=fld1D_this_proc(j)+(Fldx(i,j,k)**2+Fldy(i,j,k)**2+Fldz(i,j,k)**2)
+					case(2)
+	                	fld1D_this_proc(k)=fld1D_this_proc(k)+(Fldx(i,j,k)**2+Fldy(i,j,k)**2+Fldz(i,j,k)**2)
+					end select
+	            end do
+	        end do
+		end do
 
 		 ! make sure that any x less than sum_xmin are set to zero
-		 sum_xmin_local = sum_xmin -xborders(procxind) +3
-		 do i=3,mx-3
+		 sum_xmin_local = sum_xmin - b1 +3
+		 do i=3,mx_axis-3
 			 if(i.lt.sum_xmin_local) fld1D_this_proc(i) = 0
  		 end do
 
-		 allocate( fld1D_recv( xborders(nSubDomainsX)-xborders(0) + 5) )
+		 allocate( fld1D_recv( nx_axis + 5) )
 	 
 		 fld1D = 0.0_dbpsn
 
@@ -182,36 +154,45 @@ contains
 		 if(kproc.eq.0) then
 
 			 !add mag1D of kproc=0 into the larger 1D array
-			 do i=3,mx-3
+			 do i=3,mx_axis-3
 				 fld1D(i-2) = fld1D(i-2) +  fld1D_this_proc(i)
 			 end do
 
 			 do k1 = 1,nSubDomainsX-1
-				mx_recv = xborders(k1+1) - xborders(k1) +5
+				select case(axis)
+				case(0)
+					mx_recv = xborders(k1+1) - xborders(k1) +5
+					off = xborders(k1)-xborders(0)
+				case(1)
+					mx_recv = yborders(procyind+1) - yborders(procyind) +5
+					off = yborders(procyind)-yborders(0)
+				case(2)
+					mx_recv = zborders(proczind+1) - zborders(proczind) +5
+					off = zborders(proczind)-zborders(0)
+				end select
+
 			 	call MPI_RECV(fld1D_recv(1:mx_recv),mx_recv,MPI_DOUBLE_PRECISION,ProcGrid(iproc,jproc)%procs(k1),k1,MPI_COMM_WORLD,mpi_stat)
-				!add mag1D of kproc=k1 into the larger 1D array
-				off = xborders(k1)-xborders(0) 
-			
+				
+				!add mag1D of kproc=k1 into the larger 1D array			
 				do i=3,mx_recv-3
 					fld1D(i-2 + off) = fld1D(i-2 + off) + fld1D_recv(i)
 				end do
 		
 			 end do
 		 else
-			 call MPI_SEND(fld1D_this_proc,mx,MPI_DOUBLE_PRECISION,ProcGrid(iproc,jproc)%procs(0),kproc,MPI_COMM_WORLD)
+			 call MPI_SEND(fld1D_this_proc,mx_axis,MPI_DOUBLE_PRECISION,ProcGrid(iproc,jproc)%procs(0),kproc,MPI_COMM_WORLD)
 		 end if
 		 
 		 !Step 2 : comm among kproc=0 to get global mag1D on each proc with kproc=0
 		 if(kproc.eq.0) then
 			 !print*,'before mag1D',mag1D
-             call MPI_AllREDUCE(MPI_IN_PLACE,fld1D,xborders(nSubDomainsX)-xborders(0),MPI_DOUBLE_PRECISION,mpi_sum, comm_kproc0)
-			 
+             call MPI_AllREDUCE(MPI_IN_PLACE,fld1D,nx_axis,MPI_DOUBLE_PRECISION,mpi_sum, comm_kproc0)
 		 end if
 		 
 		 deallocate(fld1D_recv)
+		 deallocate(fld1D_this_proc)
 
-		
-	end subroutine SumFldX1D
+	end subroutine SumFld1D
 	
 !--------------------------------------------------------------------------------------------
 !
@@ -272,6 +253,7 @@ contains
          call MPI_AllREDUCE(pos_this,pos,1,MPI_INTEGER,mpi_max, MPI_COMM_WORLD)
 
 	end subroutine FirstOvershootFromRightZ
+
 		
 	
 end module bc_adjust_speed

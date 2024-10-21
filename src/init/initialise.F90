@@ -7,6 +7,7 @@ module initialise
 	 use mem_fld
 	 use prtl_tag
 	 use subdomains
+	 use init_prtl
 #ifdef OPEN_MP
      use omp_lib 
 #endif 	 
@@ -16,9 +17,9 @@ contains
      subroutine InitAll		  
 
           call AllocateFldVars
-		  call InitFlds_default
+		call InitFlds_default
 
-		  call AllocatePrtlVars 
+		call AllocatePrtlVars 
 
      end subroutine InitAll
 	  
@@ -42,7 +43,7 @@ contains
 
      subroutine InitScale
           ompe=c/c_ompe
-          qi=(g0*ompe**2)/(epc*(1.0_psn+me/mi))
+          qi=(g0*ompe**2)/((real(epc,dbpsn)/cell_volume)*(1.0_psn+me/mi))
           qe=-qi
           qme=-1.0_psn
           qmi=1.0_psn/mi
@@ -53,23 +54,14 @@ contains
     
 	 
 	 subroutine InitPrtlArrSize 
-		  
-		  Nelc=epc*(mx-5)*(my-5)      
-#ifndef twoD
-          Nelc=Nelc*(mz-5) ! Initial Number of electrons  
-#endif
-         
-          
-#ifdef cyl
-		  call  Nelc_cyl
-#endif		  
-		  
-		  prtl_arr_size= min( int(3.0*Nelc) , 10000000 ) ! max. initial prtl size is 10M  
+		  integer :: Nelc 
 
+          Nelc = Nelc_uniform()         
+	  		  
+		prtl_arr_size= min( int(3.0*Nelc) , 10000000 ) ! max. initial prtl size is 10M  
 #ifdef gpu
           prtl_arr_size=gpu_prtl_arr_size
 #endif 
-	
 	 end subroutine InitPrtlArrSize
 	 
 	 
@@ -77,30 +69,33 @@ contains
           allocate(Ex(mx,my,mz),Ey(mx,my,mz),Ez(mx,my,mz))
           allocate(Bx(mx,my,mz),By(mx,my,mz),Bz(mx,my,mz))
 		  
-		  call InitAuxFld
+		call InitAuxFld
 		  
      end subroutine AllocateFldVars
 	 
 
      subroutine AllocatePrtlVars
-		  Nflvr=2 !by default the number of flv is 2, it is increased on demand in SetQbyM(help_setup.F90)
+		Nflvr=2 !by default the number of flv is 2, it is increased on demand in SetQbyM(help_setup.F90)
           allocate(flvrqm(Nflvr),FlvrCharge(Nflvr),FlvrSaveFldData(Nflvr),FlvrType(Nflvr),FlvrSaveRatio(Nflvr))
-          allocate(CurrentTagID(Nflvr))
+          allocate(CurrentTagID(Nflvr),CurrentTagProcID(Nflvr))
+          allocate(flvr_prpt(Nflvr))
+
           !Default values 
           flvrqm(1)=qmi
           flvrqm(2)=qme
-		  FlvrCharge(1)=1.0_psn
-		  FlvrCharge(2)=-1.0_psn
+		FlvrCharge(1)=1.0_psn
+		FlvrCharge(2)=-1.0_psn
           FlvrSaveFldData(1)=1
           FlvrSaveFldData(2)=1
           FlvrType(1)=0
           FlvrType(2)=0
           FlvrSaveRatio(1)=psave_ratio
-          FlvrSaveRatio(2)=psave_ratio   
-	 	  CurrentTagID(1)=0 !initialise the value of current tag 
-	 	  CurrentTagID(2)=0  
-
-		  call InitPrtlTag
+          FlvrSaveRatio(2)=psave_ratio  
+          CurrentTagID(1) = 0 
+          CurrentTagID(2) = 0 
+          CurrentTagProcID(1) = proc + 1
+          CurrentTagProcID(2) = proc + 1 
+           
 	  
           call InitPrtlArr(prtl_arr_size)		  
 		  

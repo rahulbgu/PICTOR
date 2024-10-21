@@ -2,66 +2,40 @@ module prtl_tag
 	use parameters
 	use vars
 	use communication
-	use, intrinsic :: ISO_C_BINDING
-	implicit none 
-	TYPE(C_PTR) :: cptr_TagBlock
-	type(MPI_win) :: TagBlock_Win
-	integer :: TagBlock_increment
-	integer, dimension(:), allocatable :: TagBlock_temp
-contains 
-	
-	subroutine InitPrtlTag
-		integer (KIND=MPI_ADDRESS_KIND) :: lb, size_of_int
-		integer (KIND=MPI_ADDRESS_KIND) :: arr_size, target_disp 
-		integer :: disp_unit
+
+contains
+
+    ! Prtl tags are a pair of unique integers (tag ID and Proc. ID )
+    ! Proc. ID is rank +1. Incremently  by nproc everytime tag ID is exchausted 
 		
-		call MPI_Type_get_extent(MPI_INTEGER, lb, size_of_int)
-		arr_size = Nflvr*size_of_int
-		disp_unit = size_of_int
-
-		call MPI_Win_allocate(arr_size, disp_unit, MPI_INFO_NULL, MPI_COMM_WORLD, cptr_TagBlock, TagBlock_win)
- 		call C_F_POINTER(cptr_TagBlock, TagBlock, (/Nflvr/) )
-
- 		call MPI_Win_fence(0,  TagBlock_Win)
-
-        TagBlock = 0 ! initialise 
-		
-	end subroutine InitPrtlTag
-	
-	subroutine ReallocatePrtlTagArr
-		integer :: old_size
-		old_size = size(TagBlock)
-
-		allocate(TagBlock_temp(old_size))
-		TagBlock_temp(1:old_size) = TagBlock(1:old_size)
-		
-		call MPI_Win_Free(TagBlock_win)
-		call InitPrtlTag
-	    
-		TagBlock(1:old_size) = TagBlock_temp(1:old_size)
-		deallocate(TagBlock_temp)
-	end subroutine ReallocatePrtlTagArr
-	
-	integer function GetTagBlock(flvID)
-		integer (KIND=MPI_ADDRESS_KIND) :: target_disp
+	subroutine GetTag(flvID, tag_id, proc_id)
 		integer :: flvID
-		integer :: orig, res
-		target_disp = flvID-1
-		orig=1
-		call MPI_Get_Accumulate(orig,1,MPI_INTEGER,res,1,MPI_INTEGER,0,target_disp,1,MPI_INTEGER,MPI_SUM,TagBlock_Win)
-		GetTagBlock = res
-	end function GetTagBlock
-	
-	integer function GetTag(flvID)
-		integer :: flvID
+		integer :: tag_id, proc_id
 		real(dbpsn)    :: r1
-		GetTag = 0
-		call random_number(r1)
-		if(FlvrSaveRatio(flvID).gt.0 .and. r1*FlvrSaveRatio(flvID).le.1) then 
-			if(mod(CurrentTagID(FlvID),NtagProcLen).eq.0) CurrentTagID(FlvID) = NtagProcLen*GetTagBlock(flvID) ! old block exhausted, request a new block
-			GetTag =  CurrentTagID(FlvID) + 1 
+		
+		tag_id  = 0
+		proc_id = 0
+		
+
+		if(FlvrSaveRatio(flvID).gt.0 ) then
+			call random_number(r1)
+			
+			if ( CurrentTagID(FlvID) .ge. 2147483645) then 
+				CurrentTagID(FlvID) = 0
+				CurrentTagProcID(FlvID) = CurrentTagProcID(FlvID) + nproc
+			end if  
+
+			proc_id = CurrentTagProcID(FlvID)
+
+			if(r1*FlvrSaveRatio(flvID).le.1) then
+				tag_id =  CurrentTagID(FlvID) +1 ! data for positive tag particles are always saved
+			else 
+				tag_id =  - (CurrentTagID(FlvID) +1 )  ! negative tag particles are tracked, but the data is saved only if needed
+			end if
+
 			CurrentTagID(FlvID) = CurrentTagID(FlvID) + 1 
+
 		end if
-	end function GetTag
+	end subroutine GetTag
 	
 end module prtl_tag 

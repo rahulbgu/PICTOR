@@ -238,10 +238,9 @@ end subroutine InterpFields_GridPoints
                dx         *dy          *F(i+1,j+1,1)
      end subroutine Interp2D  
 !-------------------------------------------------------------------------------------------------------
-! The following interpolation method assumes that grid qnuatites are evalauated at the center of the cell, 
-! the linear interpolation is done from the cell center to a specified location  
+! Interpolation from grid points where the (average) field values are obtained by averaging staggered E,B field components on the Yee-Mesh 
 !------------------------------------------------------------------------------------------------------- 
-subroutine InterpEMFldGridPointAvg(x,y,z,pEx,pEy,pEz,pBx,pBy,pBz,Ex,Ey,Ez,Bx,By,Bz)
+subroutine InterpEMFldGridPointYeeMesh(x,y,z,pEx,pEy,pEz,pBx,pBy,pBz,Ex,Ey,Ez,Bx,By,Bz)
 	     real(psn), intent(IN)    :: x,y,z
 	     real(psn), intent(INOUT) :: pEx,pEy,pEz,pBx,pBy,pBz
 		 real(psn), dimension(mx,my,mz), intent(IN) :: Ex,Ey,Ez,Bx,By,Bz
@@ -310,11 +309,11 @@ subroutine InterpEMFldGridPointAvg(x,y,z,pEx,pEy,pEz,pBx,pBy,pBz,Ex,Ey,Ez,Bx,By,
 		  FldVec(8)=Ez(i+1,j+1,k)+Ez(i+1,j+1,k+1)
           pEz=sum(0.5_psn*wt*FldVec)
 #else
-			FldVec(1)=Ez(i,j,k)
-			FldVec(2)=Ez(i+1,j,k)
-			FldVec(3)=Ez(i,j+1,k)
-			FldVec(4)=Ez(i+1,j+1,k)
-            pEz=sum(wt*FldVec)
+		  FldVec(1)=Ez(i,j,k)
+		  FldVec(2)=Ez(i+1,j,k)
+		  FldVec(3)=Ez(i,j+1,k)
+		  FldVec(4)=Ez(i+1,j+1,k)
+          pEz=sum(wt*FldVec)
 #endif 
  
 
@@ -327,13 +326,13 @@ subroutine InterpEMFldGridPointAvg(x,y,z,pEx,pEy,pEz,pBx,pBy,pBz,Ex,Ey,Ez,Bx,By,
 		  FldVec(6)=Bx(i+1,j-1,k)+Bx(i+1,j,k)+Bx(i+1,j-1,k+1)+Bx(i+1,j,k+1)  	  
 		  FldVec(7)=Bx(i,j,k)+Bx(i,j+1,k)+Bx(i,j,k+1)+Bx(i,j+1,k+1)	
 		  FldVec(8)=Bx(i+1,j,k)+Bx(i+1,j+1,k)+Bx(i+1,j,k+1)+Bx(i+1,j+1,k+1)		
-          pBx=sum(0.25_psn*wt*FldVec) + Bx_ext0
+          pBx=sum(0.25_psn*wt*FldVec) +Bx_ext0
 #else
-			FldVec(1)=Bx(i,j-1,k)+Bx(i,j,k)	
-			FldVec(2)=Bx(i+1,j-1,k)+Bx(i+1,j,k)  	  
-			FldVec(3)=Bx(i,j,k)+Bx(i,j+1,k)	
-			FldVec(4)=Bx(i+1,j,k)+Bx(i+1,j+1,k)		
-			pBx=sum(0.5_psn*wt*FldVec) +Bx_ext0
+		  FldVec(1)=Bx(i,j-1,k)+Bx(i,j,k)	
+		  FldVec(2)=Bx(i+1,j-1,k)+Bx(i+1,j,k)  	  
+		  FldVec(3)=Bx(i,j,k)+Bx(i,j+1,k)	
+		  FldVec(4)=Bx(i+1,j,k)+Bx(i+1,j+1,k)		
+		  pBx=sum(0.5_psn*wt*FldVec) +Bx_ext0
 #endif 
 		  
 #ifndef twoD 		  
@@ -347,11 +346,11 @@ subroutine InterpEMFldGridPointAvg(x,y,z,pEx,pEy,pEz,pBx,pBy,pBz,Ex,Ey,Ez,Bx,By,
 		  FldVec(8)=By(i,j+1,k)+By(i,j+1,k+1)+By(i+1,j+1,k)+By(i+1,j+1,k+1)
           pBy=sum(0.25_psn*wt*FldVec) +By_ext0
 #else
-			FldVec(1)=By(i-1,j,k)+By(i,j,k)
-			FldVec(2)=By(i,j,k)+By(i+1,j,k)
-			FldVec(3)=By(i-1,j+1,k)+By(i,j+1,k)
-			FldVec(4)=By(i,j+1,k)+By(i+1,j+1,k)
-			pBy=sum(0.5_psn*wt*FldVec) +By_ext0
+		  FldVec(1)=By(i-1,j,k)+By(i,j,k)
+		  FldVec(2)=By(i,j,k)+By(i+1,j,k)
+		  FldVec(3)=By(i-1,j+1,k)+By(i,j+1,k)
+		  FldVec(4)=By(i,j+1,k)+By(i+1,j+1,k)
+		  pBy=sum(0.5_psn*wt*FldVec) +By_ext0
 #endif 
 		  
 		  FldVec(1)=Bz(i-1,j-1,k)+Bz(i-1,j,k)+Bz(i,j-1,k)+Bz(i,j,k)
@@ -366,7 +365,7 @@ subroutine InterpEMFldGridPointAvg(x,y,z,pEx,pEy,pEz,pBx,pBy,pBz,Ex,Ey,Ez,Bx,By,
 #endif 
 		  pBz=sum(0.25*wt*FldVec) +Bz_ext0
 	
-end subroutine InterpEMFldGridPointAvg
+end subroutine InterpEMFldGridPointYeeMesh
      
      
 !-------------------------------------------------------------------------------------------------------

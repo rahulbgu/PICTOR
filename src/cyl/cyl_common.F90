@@ -22,9 +22,12 @@ contains
 		inv_dtheta=1.0_psn/dtheta
 		rshift = -0.5_psn
 		
+#ifndef twoD		
 		if(inc_axis) indepLBaxis=2 !indepLBaxis must be along the z-axis, if the axis in included
+#endif		
 		
 		if(inc_axis .and. nSubDomainsY.ne.1) STOP 'nSubDomainsY must be 1 if the cylinderical axis is included' 
+		if(grid_dy.ne.1.0_psn)  STOP ' grid_dy must be set to 1.0_psn if the cylinderical grid is used' 
 		
 	end subroutine InitParam_cyl
 	
@@ -36,17 +39,19 @@ contains
 	end subroutine InitAll_cyl_gpu 
 #endif 
 
-    !number of electrons in the subdomain Nelc, assuming uniform distribution, is redefined	
-	subroutine Nelc_cyl
-		 real(psn) :: rmin,rmax
+    !number of electrons in the subdomain Nelc, assuming uniform distribution
+	integer function Nelc_uniform_cyl(x1,x2,y1,y2,z1,z2)
+		 real(dbpsn) :: x1,x2,y1,y2,z1,z2 !range of domain; global cordinate
+		 real(dbpsn) :: rmin,rmax
 		 
-		 rmin=xborders(procxind) + rshift
-		 rmax=xborders(procxind+1) + rshift
-		 if(procxind.eq.0) rmin=0
+		 rmin=x1 + rshift
+		 rmax=x2 + rshift
+		 rmin=max(rmin,0.0_dbpsn)
 		 
-		 Nelc=0.5_psn*epc*dtheta*(rmax**2-rmin**2)*(ymax-ymin)*(zmax-zmin)
+		 Nelc_uniform_cyl=0.5_psn*epc*dtheta*(rmax**2-rmin**2)*(y2-y1)*(z2-z1)
 
-	end subroutine Nelc_cyl
+	end function Nelc_uniform_cyl
+	
 	
 	!if weights are used, weight of each particles is proportional to r\dtheta if num. of prtl. ib cells is independent of r  
 	subroutine azimuthal_weight_prtl(wt,x)
@@ -55,6 +60,20 @@ contains
 		r=max(x+rshift,0.0_dbpsn)
 		wt = wt * r * dtheta
 	end subroutine azimuthal_weight_prtl
+
+	!a random xglobal between x1 and x2; r1 is a random number
+	subroutine random_xglobal_cyl(r1,xglobal,x1,x2)
+		real(dbpsn) :: xglobal, x1,x2, r1
+		real(dbpsn) :: rmin,rmax
+		
+	    rmin=x1 + rshift
+	    rmax=x2 + rshift
+	    rmin=max(rmin,0.0_dbpsn)
+		
+		xglobal =  sqrt(rmin**2 + r1*(rmax**2 - rmin**2)) -rshift
+		
+	end subroutine random_xglobal_cyl
+
 
    	
 	

@@ -2,21 +2,21 @@
 !subroutines used to generate vel and gamma spectrum
 !-----------------------------------------------------
 module prtl_stats
-	use parameters
-	use vars
+  use parameters
+  use vars
 	use communication
-    use interpolation, only : InterpEMfield	
+  use interpolation, only : InterpEMfield
 	implicit none 
 	
     real(dbpsn),dimension(:,:), allocatable:: spec_gamma 
     real,dimension(:),   allocatable:: Gamma_spec_bin
-    integer :: Gamma_spec_binlen
-    real(psn) :: gmax_allflv,gmin_allflv,local_gmax_allflv,local_gmin_allflv 
+    integer :: Gamma_spec_binlen = 0
+    real(psn) :: gmax_allflv = 1.0_psn
     
-	!varaibles used to genrate prtl velocity spectrum 
+	  !varaibles used to genrate prtl velocity spectrum 
     real(dbpsn),dimension(:,:), allocatable:: spec_speed 
     real,dimension(:),   allocatable:: Speed_spec_bin
-    integer :: Speed_spec_binlen
+    integer :: Speed_spec_binlen = 0
 	
     !varaibles used to generate mean of various prtl averaged quantities 
     real(dbpsn),dimension(:), allocatable :: SumNprtl,SumQ, SumQxKE, SumQxExVx,SumQxEyVy,SumQxEzVz,SumQxPx2,SumQxPy2,SumQxPz2
@@ -26,57 +26,58 @@ contains
 
 
 subroutine InitPrtlStatVars
-	 if(allocated(spec_speed)) call DeallocatePrtlStatVars
+	  if(allocated(spec_speed)) call DeallocatePrtlStatVars
      call InitSpeedSpecBin !defined in savedata_routines
      allocate(SumNprtl(Nflvr),SumQ(Nflvr),SumQxKE(Nflvr))  !used for saving prtl averaged info  
      allocate(SumQxExVx(Nflvr),SumQxEyVy(Nflvr),SumQxEzVz(Nflvr))
      allocate(SumQxPx2(Nflvr),SumQxPy2(Nflvr),SumQxPz2(Nflvr))
      allocate(Speed_SumQxExVx(Nflvr,Speed_spec_binlen),Speed_SumQxEyVy(Nflvr,Speed_spec_binlen),Speed_SumQxEzVz(Nflvr,Speed_spec_binlen)) 
     !allocate(SumQxLR(Nflvr))
-     allocate(spec_gamma(Nflvr,0),Gamma_spec_bin(0))
 end subroutine InitPrtlStatVars
 
 subroutine DeallocatePrtlStatVars
 	deallocate(spec_speed,Speed_spec_bin)
 	
-    deallocate(SumNprtl,SumQ,SumQxKE) 
-    deallocate(SumQxExVx,SumQxEyVy,SumQxEzVz)
-    deallocate(SumQxPx2,SumQxPy2,SumQxPz2)
-    deallocate(Speed_SumQxExVx,Speed_SumQxEyVy,Speed_SumQxEzVz) 
- 
-    deallocate(spec_gamma,Gamma_spec_bin)
-	
+  deallocate(SumNprtl,SumQ,SumQxKE) 
+  deallocate(SumQxExVx,SumQxEyVy,SumQxEzVz)
+  deallocate(SumQxPx2,SumQxPy2,SumQxPz2)
+  deallocate(Speed_SumQxExVx,Speed_SumQxEyVy,Speed_SumQxEzVz) 
+ 	
 end subroutine DeallocatePrtlStatVars
 		
 !-------------------------------------------------------------------------------------------------
 !Allocate arrays according to the current bin size and range to be covered 
 !-------------------------------------------------------------------------------------------------
-subroutine CreateGammaSpecBin     
+subroutine InitGammaSpec     
   integer :: i
-  Gamma_spec_binlen=ceiling((log(gmax_allflv)-log(gmin_allflv))/Gamma_spec_binwidth)+1
+  
+  Gamma_spec_binlen= ceiling(log(gmax_allflv)/Gamma_spec_binwidth) +2
   !if(proc.eq.0) print*,'Gamma spec binlen',Gamma_spec_binlen,'gmax',gmax_allflv,'gmin',gmin_allflv
-  if(size(Gamma_spec_bin).lt.Gamma_spec_binlen) then 
-      deallocate(spec_gamma,Gamma_spec_bin)
-	  allocate(spec_gamma(Nflvr,Gamma_spec_binlen),Gamma_spec_bin(Gamma_spec_binlen)) 
-	  do i=1,Gamma_spec_binlen
-	      Gamma_spec_bin(i)=gmin_allflv*exp(real(i-1)*Gamma_spec_binwidth)
-	  end do
-   end if
-end subroutine CreateGammaSpecBin
+  
+  if(allocated(spec_gamma)) deallocate(spec_gamma,Gamma_spec_bin)
+  allocate(spec_gamma(Nflvr,Gamma_spec_binlen),Gamma_spec_bin(Gamma_spec_binlen)) 
+	
+  do i=1,Gamma_spec_binlen
+	      Gamma_spec_bin(i)=exp( real(i-1,psn)*Gamma_spec_binwidth )
+	end do
+  spec_gamma = 0.0_psn
+
+end subroutine InitGammaSpec
+
 
 subroutine InitSpeedSpecBin     
   integer :: i
-  Speed_spec_binlen=ceiling(1.0_psn/Speed_spec_binwidth)+1
+  Speed_spec_binlen=ceiling(1.0_psn/Speed_spec_binwidth) +2
   allocate(spec_speed(Nflvr,Speed_spec_binlen),Speed_spec_bin(Speed_spec_binlen)) 
   do i=1,Speed_spec_binlen
-      Speed_spec_bin(i)=Speed_spec_binwidth*(i-1)
+      Speed_spec_bin(i)=Speed_spec_binwidth*real(i-1,psn)
   end do
 end subroutine InitSpeedSpecBin
 
 !-------------------------------------------------------------------------------------------------
 !spectrum of particles in a subdomain, x1,..  are in global cordinate 
 !-------------------------------------------------------------------------------------------------
-subroutine CalcGmaxGminLocalInSubDomain(xi,xf,yi,yf,zi,zf)
+subroutine CalcGmaxLocalInSubDomain(xi,xf,yi,yf,zi,zf)
   real(dbpsn)   :: xi,xf,yi,yf,zi,zf
   real(psn)     :: x1,x2,y1,y2,z1,z2
   integer   :: n
@@ -84,16 +85,17 @@ subroutine CalcGmaxGminLocalInSubDomain(xi,xf,yi,yf,zi,zf)
   
   call DomainBoundary_GlobalToLocalCord(xi,xf,yi,yf,zi,zf,x1,x2,y1,y2,z1,z2)
   
-  local_gmin_allflv=1.0_psn
-  local_gmax_allflv=1.0_psn
+  gmax_allflv  = 1.0_psn
   do n=1,used_prtl_arr_size
+
        if(flvp(n).eq.0) cycle
-	   if((xp(n).lt.x1.or.xp(n).gt.x2).or.(yp(n).lt.y1.or.yp(n).gt.y2).or.(zp(n).lt.z1.or.zp(n).gt.z2)) cycle
+	     if((xp(n).lt.x1.or.xp(n).gt.x2).or.(yp(n).lt.y1.or.yp(n).gt.y2).or.(zp(n).lt.z1.or.zp(n).gt.z2)) cycle
+      
        gamma=sqrt(1.0_psn+up(n)**2+vp(n)**2+wp(n)**2)
-       if(gamma.gt.local_gmax_allflv) local_gmax_allflv=gamma
-       if(gamma.lt.local_gmin_allflv) local_gmin_allflv=gamma 
+       if(gamma.gt.gmax_allflv) gmax_allflv=gamma
+  
   end do
-end subroutine CalcGmaxGminLocalInSubDomain
+end subroutine CalcGmaxLocalInSubDomain
 
 subroutine CalcGammaSpectrumInSubDomain(xi,xf,yi,yf,zi,zf)
   real(dbpsn)   :: xi,xf,yi,yf,zi,zf
@@ -103,14 +105,16 @@ subroutine CalcGammaSpectrumInSubDomain(xi,xf,yi,yf,zi,zf)
   
   call DomainBoundary_GlobalToLocalCord(xi,xf,yi,yf,zi,zf,x1,x2,y1,y2,z1,z2)
   
-  spec_gamma=0.0_psn
   do n=1,used_prtl_arr_size
+
        if(flvp(n).eq.0) cycle
-	   if((xp(n).lt.x1.or.xp(n).gt.x2).or.(yp(n).lt.y1.or.yp(n).gt.y2).or.(zp(n).lt.z1.or.zp(n).gt.z2)) cycle
+	     if((xp(n).lt.x1.or.xp(n).gt.x2).or.(yp(n).lt.y1.or.yp(n).gt.y2).or.(zp(n).lt.z1.or.zp(n).gt.z2)) cycle
+       
        ch=flvp(n)
        gamma=sqrt(1.0_psn+up(n)**2+vp(n)**2+wp(n)**2)
-       bin_ind=floor((log(gamma)-log(gmin_allflv))/Gamma_spec_binwidth)+1
-       spec_gamma(ch,bin_ind)=spec_gamma(ch,bin_ind)+ abs(qp(n))
+       bin_ind=floor((log(gamma))/Gamma_spec_binwidth) +1
+       spec_gamma(ch,bin_ind)=spec_gamma(ch,bin_ind) + abs(qp(n))
+  
   end do
 end subroutine CalcGammaSpectrumInSubDomain
 
@@ -125,9 +129,9 @@ subroutine CalcSpeedSpectrumInSubDomain(xi,xf,yi,yf,zi,zf)
   spec_speed=0
   do n=1,used_prtl_arr_size
        if(flvp(n).eq.0) cycle
-	   if((xp(n).lt.x1.or.xp(n).gt.x2).or.(yp(n).lt.y1.or.yp(n).gt.y2).or.(zp(n).lt.z1.or.zp(n).gt.z2)) cycle
+	     if((xp(n).lt.x1.or.xp(n).gt.x2).or.(yp(n).lt.y1.or.yp(n).gt.y2).or.(zp(n).lt.z1.or.zp(n).gt.z2)) cycle
        ch=flvp(n)
-       speed=1.0_psn - 1.0_psn/(1.0_psn+up(n)*up(n)+vp(n)*vp(n)+wp(n)*wp(n))
+       speed=sqrt(1.0_psn - 1.0_psn/(1.0_psn+up(n)*up(n)+vp(n)*vp(n)+wp(n)*wp(n)))
        bin_ind=floor(speed/Speed_spec_binwidth) +1
        spec_speed(ch,bin_ind)=spec_speed(ch,bin_ind)+abs(qp(n))
   end do
@@ -142,7 +146,7 @@ subroutine DomainBoundary_GlobalToLocalCord(xi,xf,yi,yf,zi,zf,x1,x2,y1,y2,z1,z2)
     y2=yf-yborders(procyind)+3 
 #ifdef twoD
     z1=1+zi !range of local cordinate is [1,2]
-	z2=1+zf
+	  z2=1+zf
 #else 	 	 
     z1=zi-zborders(proczind)+3
     z2=zf-zborders(proczind)+3
@@ -202,49 +206,29 @@ subroutine CalcSpeedBinMeanEV(ArrSum,ArrMean)
   do j=1,Speed_spec_binlen
      do i=1,Nflvr
            if(spec_speed(i,j).eq.0) then 
-                 ArrMean(i,j)=0
+              ArrMean(i,j)=0
             else 
                ArrMean(i,j)=real(ArrSum(i,j)/spec_speed(i,j))                    
             end if 
      end do
-end do   
+  end do   
 end subroutine CalcSpeedBinMeanEV
 
 
 !---------------------------------------------------------------------------------------------------------------------------------
 !   subroutines to communicate data related to spectrum
 !---------------------------------------------------------------------------------------------------------------------------------
-       subroutine GetGmaxGminGlobal
-		 integer :: mpi_err  
-            call MPI_ALLREDUCE(local_gmax_allflv,gmax_allflv,1,mpi_psn,mpi_max,MPI_COMM_WORLD,mpi_err)
-            call MPI_ALLREDUCE(local_gmin_allflv,gmin_allflv,1,mpi_psn,mpi_min,MPI_COMM_WORLD,mpi_err)
-       end subroutine GetGmaxGminGlobal
+
+       subroutine GetGmaxGlobal
+          call MPI_ALLREDUCE( MPI_IN_PLACE , gmax_allflv, 1, mpi_psn, MPI_MAX, MPI_COMM_WORLD)
+       end subroutine GetGmaxGlobal
   
-       subroutine ReduceGammaSpectrum
-		   integer :: mpi_err
-            if(proc.eq.0) then 
-              call MPI_REDUCE(MPI_IN_PLACE,spec_gamma,Nflvr*Gamma_spec_binlen,MPI_DOUBLE_PRECISION,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
-            else 
-                call MPI_REDUCE(spec_gamma,  spec_gamma,Nflvr*Gamma_spec_binlen,MPI_DOUBLE_PRECISION,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
-            end if
-       end subroutine ReduceGammaSpectrum
-	   
        subroutine AllReduceGammaSpectrum
-		   integer :: mpi_err
-           call MPI_AllREDUCE(MPI_IN_PLACE,spec_gamma,Nflvr*Gamma_spec_binlen,MPI_DOUBLE_PRECISION,mpi_sum,MPI_COMM_WORLD,mpi_err)
+           call MPI_AllREDUCE(MPI_IN_PLACE, spec_gamma, Nflvr*Gamma_spec_binlen, MPI_DOUBLE_PRECISION, MPI_SUM , MPI_COMM_WORLD)
        end subroutine AllReduceGammaSpectrum
             
-       subroutine ReduceSpeedSpectrum
-		   integer :: mpi_err
-            if(proc.eq.0) then 
-              call MPI_REDUCE(MPI_IN_PLACE,spec_speed,Nflvr*Speed_spec_binlen,MPI_DOUBLE_PRECISION,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
-            else 
-                call MPI_REDUCE(spec_speed,  spec_speed,Nflvr*Speed_spec_binlen,MPI_DOUBLE_PRECISION,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
-            end if
-       end subroutine ReduceSpeedSpectrum
        subroutine AllReduceSpeedSpectrum
-		   integer :: mpi_err
-           call MPI_AllREDUCE(MPI_IN_PLACE,spec_speed,Nflvr*Speed_spec_binlen,MPI_DOUBLE_PRECISION,mpi_sum,MPI_COMM_WORLD,mpi_err)
+           call MPI_AllREDUCE(MPI_IN_PLACE, spec_speed, Nflvr*Speed_spec_binlen, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD)
        end subroutine AllReduceSpeedSpectrum
 	   
 !----------------------------------------------------------------------------------------------------------------

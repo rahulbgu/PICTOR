@@ -30,12 +30,14 @@ contains
      end subroutine AppendParticles
 	 
 	 subroutine ExchangePrtlCPU
-		  call ExchangePrtl(qp,xp,yp,zp,up,vp,wp,var1p,flvp,tagp,1,used_prtl_arr_size)
+		  call ExchangePrtl(qp,xp,yp,zp,up,vp,wp,var1p,flvp,tagp,procp,qmp,wtp,1,used_prtl_arr_size)
 	 end subroutine ExchangePrtlCPU
 
-     subroutine ExchangePrtl(q,x,y,z,u,v,w,var1,flv,tag,min_ind,max_ind)
+     subroutine ExchangePrtl(q,x,y,z,u,v,w,var1,flv,tag,proc,qm,wt,min_ind,max_ind)
 		  real(psn), dimension(:) :: q,x,y,z,u,v,w,var1
-		  integer, dimension(:) :: flv,tag
+		  real(psn), dimension(:) :: qm, wt
+		  integer, dimension(:) :: flv
+		  integer, dimension(:) :: tag, proc
 		  integer :: min_ind, max_ind
 		  
 		  call StartTimer(9)
@@ -43,7 +45,7 @@ contains
 		  call reset_pcount(ngbr_send)
 		  call reset_pcount(ngbr_recv)
 
-		  call LoadPrtlOutliers(q,x,y,z,u,v,w,var1,flv,tag,min_ind,max_ind)
+		  call LoadPrtlOutliers(q,x,y,z,u,v,w,var1,flv,tag,proc,qm,wt,min_ind,max_ind)
 		  
 		  call SendPrtlSize(ngbr_send)
 		  call RecvPrtlSize(ngbr_recv)
@@ -56,8 +58,6 @@ contains
 		 
 		  call RecvPrtl(ngbr_recv)
 		  
-		 
-
 		  
           
 		  call StopTimer(9)
@@ -93,7 +93,7 @@ contains
            integer :: n, m , ind
  		  do n =1,size(send)
  			  do m=1,send(n)%num_ngbrs
-			  
+
  				  send(n)%ngbr(m)%mpi_req_prtl_size = MPI_REQUEST_NULL
  			  	  call MPI_ISEND(send(n)%ngbr(m)%pcount,1,MPI_INTEGER,send(n)%ngbr(m)%proc, send(n)%ngbr(m)%mpi_tag_offset, MPI_COMM_WORLD, send(n)%ngbr(m)%mpi_req_prtl_size)
 							  			  
@@ -107,8 +107,8 @@ contains
 	  
  		  do n =1,size(recv)
  			  do m=1,recv(n)%num_ngbrs
-			  
- 				  recv(n)%ngbr(m)%pcount = 0 
+
+  				  recv(n)%ngbr(m)%pcount = 0 
  				  recv(n)%ngbr(m)%mpi_req_prtl_size = MPI_REQUEST_NULL
  				  call MPI_IRECV(recv(n)%ngbr(m)%pcount,1,MPI_INTEGER,recv(n)%ngbr(m)%proc, recv(n)%ngbr(m)%mpi_tag_offset, MPI_COMM_WORLD, recv(n)%ngbr(m)%mpi_req_prtl_size)
 				  

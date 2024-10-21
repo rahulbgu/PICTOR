@@ -12,6 +12,10 @@ module vars
      integer              :: mx,my,mz
 	 real(psn), parameter :: me=1.0_psn ! dimensionless electron mass (normalised to the electron mass) of electrons = 1 by choice
 	 real(psn), parameter :: mi=mi_me ! dimensionless mass of ions (normalised to the electron mass) = mi_me
+	 real(psn), parameter :: grid_inv_dx = 1.0_psn/grid_dx
+	 real(psn), parameter :: grid_inv_dy = 1.0_psn/grid_dy
+	 real(psn), parameter :: grid_inv_dz = 1.0_psn/grid_dz
+	 real(psn), parameter :: cell_volume = grid_dx*grid_dy*grid_dz
      
      !----------------------------------------------------
      ! Grid variables 
@@ -20,6 +24,12 @@ module vars
      real(psn),dimension(:,:,:), allocatable :: Jx,Jy,Jz
      real(psn) ::Bx_ext0,By_ext0,Bz_ext0! constant external magnetic field 
      real(psn),dimension(:,:,:), allocatable :: FilteredEx,FilteredEy,FilteredEz
+
+	 type :: vec_fld
+	 	real(psn), dimension(:,:,:), allocatable  :: x
+		real(psn), dimension(:,:,:), allocatable  :: y
+		real(psn), dimension(:,:,:), allocatable  :: z
+	 end type vec_fld
      !----------------------------------------------------
      ! Short Arrays used to process ordered particles in a vectorized way
      !----------------------------------------------------
@@ -30,15 +40,20 @@ module vars
      !----------------------------------------------------
      ! Array used for particles and test particles 
      !----------------------------------------------------
-	 integer, dimension(:), allocatable:: flvp,tagp
-	 real(psn), dimension(:), allocatable:: qp,xp,yp,zp,up,vp,wp,var1p 
-	 integer, dimension(:), allocatable:: flvp_temp,tagp_temp
+	 integer, dimension(:), allocatable:: flvp,tagp, procp
+	 real(psn), dimension(:), allocatable:: qp,xp,yp,zp,up,vp,wp,var1p
+	 real(psn), dimension(:), allocatable:: qmp, wtp 
+
+	 integer, dimension(:), allocatable:: flvp_temp,tagp_temp, procp_temp
 	 real(psn), dimension(:), allocatable:: qp_temp,xp_temp,yp_temp,zp_temp,up_temp,vp_temp,wp_temp,var1p_temp
-     !----------------------------------------------------
+	 real(psn), dimension(:), allocatable:: qmp_temp, wtp_temp 
+     
+	 !----------------------------------------------------
      !particle datatype : used for transferring particles 
      !----------------------------------------------------
      type :: particle
-          sequence
+		  sequence
+
           real(psn) :: q		  
           real(psn) :: x
           real(psn) :: y
@@ -47,9 +62,21 @@ module vars
           real(psn) :: v
           real(psn) :: w
 		  real(psn) :: var1 !multipurpose variable, problem dependent 
+		  
+		  !cases where each particle has distinct q/m and weight :: make optinal?
+		  real(psn) :: qm !charge to mass ratio
+		  real(psn) :: wt !particle weight
+
 		  integer   :: flv
+
+		  !particle tracking :: make optional
 		  integer   :: tag
-     end type particle
+		  integer   :: proc
+
+		  !dummy : to ensure data alignments in double precision. 
+		  integer   :: dum
+		  
+	 end type particle
      !in case the above partile datatype changes, the following must be modified : 
      !a) mpi datatype for particle transfer b) AppendParticle 
      !---------------------------------------------------------------------------
@@ -58,36 +85,46 @@ module vars
      !some parameters
      real(psn) :: qmi,qme,qe,qi,ompe,masse,massi
      real(psn), dimension(:),allocatable :: flvrqm
-	 real(psn), dimension(:),allocatable :: FlvrCharge
+	 real(psn), dimension(:),allocatable :: FlvrCharge !initial charge
      integer  , dimension(:),allocatable :: FlvrSaveFldData
      integer  , dimension(:),allocatable :: FlvrType! By default, 0: simulation particle 1: Test Particle
      integer  , dimension(:),allocatable :: FlvrSaveRatio 
      integer        :: Nflvr ! Number of plasma species 
-     integer        :: Nelc  !Initial number of electrons, defined in initialise.F90  
+
+	 
+	 type :: FlvrProperty
+	 	integer                               :: ionization = 0 ! 0 : no ionization
+		integer                               :: ionization_elc_flv = 0  
+		integer                               :: Z_nucleus = 0
+	 end type FlvrProperty
+
+	 type(FlvrProperty), dimension(:), allocatable :: flvr_prpt
      
      !----------------------------------------------------
      !variables used to save data 
      !----------------------------------------------------
- 	 integer, pointer, asynchronous :: TagBlock(:) ! Currently Available Tag Block (INT) to be used on any proc.
+
 	 integer, dimension(:), allocatable :: CurrentTagID ! tag counter
-     integer                            :: NtagProcLen=100
+	 integer, dimension(:), allocatable :: CurrentTagProcID ! tag proc ID
 	 integer, dimension(:) , allocatable :: prtl_arr_size_all
 	 integer :: nprtl_save_this
+	 real(psn) :: psave_all_gmin = huge(1.0_psn)
      
 	 real,dimension(:,:,:),allocatable :: fdata
      integer :: fdatax,fdatay,fdataz
 	 real(psn) :: binlen 
      integer :: fdataxi,fdatayi,fdatazi
      integer :: fdataxf,fdatayf,fdatazf
+	 
      !----------------------------------------------------
      !indices and variables
      !----------------------------------------------------
      integer :: t !counter for time steps  
      integer :: tstart ! starting time step number  
 	 integer :: restart_time! time step to load the restart data
-     integer :: prtl_arr_size! size of particle array
-     integer :: used_prtl_arr_size !maximum index of an active particle in the particle array
-     integer :: np ! total number of particles on this processor
+     integer :: prtl_arr_size=0! size of particle array
+     integer :: used_prtl_arr_size=0 !maximum index of an active particle in the particle array
+     integer :: np=0 ! total number of particles on this processor
 	 integer, parameter :: outp_arr_block_size=10240
 	 integer            :: max_nprtl_out = 0
      !------------------------------------------------------
@@ -99,6 +136,7 @@ module vars
      !varaibles to set boundary conditions for field and particles
      !------------------------------------------------------- 
 	 logical :: inflowBC = .false.
+	 logical :: pmlBC = .false.
 	 	 
  	 type FlowFldType
  		 real(psn) :: Attenuate  
@@ -134,7 +172,7 @@ module vars
      character (len=1024) :: fname,cmd,str1,str2
 
      !---------------------------------------------------------
-     !varaibles used for particle exchange among subdomains
+     !variables used for particle exchange among subdomains
      !---------------------------------------------------------
 
 	 integer :: np_recv
@@ -177,7 +215,7 @@ module vars
      real(dbpsn), dimension(50) :: exec_time 
      
      !----------------------------------------------------------------
-     !some auxiliary variables 
+     !Constants
      !----------------------------------------------------------------
      real(psn), parameter :: fldc=c*EMspeedBoost
      real(psn), parameter :: fld_halfc=c*0.5_psn*EMspeedBoost
@@ -202,6 +240,7 @@ module vars
 	  
 	 integer :: indepLBaxis = 0! 0=x,1=y,2=z; independent load balancing along this axis
      type(MPI_Comm) :: comm_indepLBaxis, comm_kproc0
+
 	 
      !-------------------------------------------------------------------
      !OpenMP related varaibles 
@@ -227,6 +266,11 @@ module vars
  	 	     import :: psn, dbpsn
  			 real(dbpsn) :: x,y,z
  			 real(psn) :: scalar_global
+ 	 	 end function
+ 	     function scalar_global_dp(x,y,z)
+ 	 	     import :: dbpsn
+ 			 real(dbpsn) :: x,y,z
+ 			 real(dbpsn) :: scalar_global_dp
  	 	 end function
  	     function scalar_local(x,y,z)
  	 	     import :: psn
@@ -255,6 +299,7 @@ module vars
  		 procedure(scalar_global), pointer, nopass :: Temperature =>null()
  		 procedure(func1D), pointer, nopass :: SpeedDist =>null()
 		 real(psn) :: Vmax
+		 real(psn) :: fraction = 1.0_psn
  		 real(psn), dimension(:), allocatable :: Table, PDF_Table
 	 end type PhaseSpaceProperty
 	 integer :: PDF_TableSize=10000
@@ -307,5 +352,17 @@ module vars
 	 real(psn) :: dtheta,inv_dtheta ! angular resolution
 	 real(psn) :: ax_perm_area
 	 real(psn) :: rshift ! radial positions are obtained by shifting the x-positions by 'rshift'
+
+	 !-------------------------------------------------------------------
+     ! Ionization
+     !-------------------------------------------------------------------
+	 logical :: ionize_prtl = .false.
+
+	 !-------------------------------------------------------------------
+     ! Convolution PML 
+     !-------------------------------------------------------------------
+	 type(vec_fld) :: pml_E_psi1, pml_E_psi2
+	 type(vec_fld) :: pml_B_psi1, pml_B_psi2
+
   
 end module vars

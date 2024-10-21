@@ -166,9 +166,9 @@ contains
 
                g(n)=sqc/sqrt(sqc+u0(n)**2+v0(n)**2+w0(n)**2)
 
-               xp(n+off)=xp(n+off) + up(n+off)*g(n)
-               yp(n+off)=yp(n+off) + vp(n+off)*g(n)
-               zp(n+off)=zp(n+off) + wp(n+off)*g(n)
+               xp(n+off)=xp(n+off) + up(n+off)*g(n)*grid_inv_dx
+               yp(n+off)=yp(n+off) + vp(n+off)*g(n)*grid_inv_dy
+               zp(n+off)=zp(n+off) + wp(n+off)*g(n)*grid_inv_dz
 	   
         end do     
 
@@ -254,9 +254,8 @@ contains
 
 	call ReduceCurrentMatrix
 
-	 	 
 	 
-	 end subroutine MoveDepositPrtl
+	end subroutine MoveDepositPrtl
 	 
 
 	 

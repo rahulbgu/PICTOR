@@ -15,19 +15,7 @@ contains
           Jy=0.0_psn
           Jz=0.0_psn
      end subroutine ResetCurrent
-	 
-!      subroutine UpdateCurrentsAllEdges
-!           call ExchangeYZEdgeCurrent
-!           call AddImportedCurrentYZ
-!           call ExchangeZXEdgeCurrent
-!           call AddImportedCurrentZX
-! #ifndef twoD
-!           call ExchangeXYEdgeCurrent
-!           call AddImportedCurrentXY
-! #endif
-!      end subroutine UpdateCurrentsAllEdges
-
-     
+	      
      subroutine smoothen_current
           integer :: ni
 
@@ -173,54 +161,6 @@ contains
 
 		 Fld(i1:i2,j1:j2,k1:k2) = Fld_filtered(i1:i2,j1:j2,k1:k2)
 	 end subroutine MovingAverageZ1
-	 
-!      subroutine MovingAverageFilter(J0)
-!           real(psn),dimension(mx,my,mz) :: J0
-!           real(psn),dimension(mx,my,mz) ::FldTemp
-!           integer :: i,j,k
-!
-! 		FldTemp=0.0_psn
-! 		call ExchangeYZEdgeCurrent1(J0)
-! #ifndef twoD
-!         do k=2,mz-2
-! #else
-!         do k=1,1
-! #endif
-!               do j=2,my-2
-!                   do i=2,mx-2
-!                          FldTemp(i,j,k)=wtm1*J0(i-1,j,k)+wt0*J0(i,j,k)+wtp1*J0(i+1,j,k)
-!                     end do
-!                end do
-!           end do
-!           J0=FldTemp
-!
-!           call ExchangeZXEdgeCurrent1(J0)
-! #ifndef twoD
-!           do k=2,mz-2
-! #else
-!           do k=1,1
-! #endif
-!             do j=2,my-2
-!                    do i=2,mx-2
-!                          FldTemp(i,j,k)=wtm1*J0(i,j-1,k)+wt0*J0(i,j,k)+wtp1*J0(i,j+1,k)
-!                     end do
-!                end do
-!           end do
-!
-!           J0=FldTemp
-! #ifndef twoD
-!           call ExchangeXYEdgeCurrent1(J0)
-!           do k=2,mz-2
-!                do j=2,my-2
-!                     do i=2,mx-2
-!                          FldTemp(i,j,k)=wtm1*J0(i,j,k-1)+wt0*J0(i,j,k)+wtp1*J0(i,j,k+1)
-!                     end do
-!                end do
-!           end do
-!           J0=FldTemp
-! #endif
-!      end subroutine MovingAverageFilter
-     
 	 
 	 subroutine CurrentFilter_BC
 		 if(bc_face(2)%pos_prtl.gt.0) call FoldInCurrentRight(bc_face(2)%pos_prtl)

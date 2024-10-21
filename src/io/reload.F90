@@ -100,6 +100,8 @@ contains
      end subroutine RestartInitFlds
 	 
      subroutine RestartInitPrtl
+		  integer, dimension(:), allocatable :: int_arr
+		  integer :: i
 
           call h5open_f(err)
 		  
@@ -111,7 +113,9 @@ contains
           call h5dclose_f(dset_id,err) 
 		  
           allocate(flvrqm(Nflvr),FlvrCharge(Nflvr),FlvrSaveFldData(Nflvr),FlvrType(Nflvr),FlvrSaveRatio(Nflvr))
-          allocate(CurrentTagID(Nflvr))
+          allocate(CurrentTagID(Nflvr),CurrentTagProcID(Nflvr))
+		  allocate(flvr_prpt(NFlvr))
+
           data_dim1(1)=Nflvr
           call h5dopen_f(fid,'flvrqm', dset_id, err)
           call h5dread_f(dset_id,h5real_psn,flvrqm,data_dim1,err)
@@ -131,16 +135,30 @@ contains
           call h5dopen_f(fid,'CurrentTagID', dset_id, err)
           call h5dread_f(dset_id,H5T_NATIVE_INTEGER,CurrentTagID,data_dim1,err)
           call h5dclose_f(dset_id,err)
+		  call h5dopen_f(fid,'CurrentTagProcID', dset_id, err)
+          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,CurrentTagProcID,data_dim1,err)
+          call h5dclose_f(dset_id,err)
+
+		  allocate(int_arr(NFlvr))
+		  call h5dopen_f(fid,'ionization_type', dset_id, err)
+          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,int_arr,data_dim1,err)
+          call h5dclose_f(dset_id,err)
+		  forall (i=1:Nflvr) flvr_prpt(i)%ionization = int_arr(i)	
 		  
-		  call InitPrtlTag 
-          call h5dopen_f(fid,'TagBlock', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,TagBlock,data_dim1,err)
-          call h5dclose_f(dset_id,err) 
-		  
-!           data_dim1(1)=6
-!           call h5dopen_f(fid,'inflowBC_speed', dset_id, err)
-!           call h5dread_f(dset_id,h5real_psn,inflowBC_speed,data_dim1,err)
-!           call h5dclose_f(dset_id,err)
+		  call h5dopen_f(fid,'ionization_elc_flv', dset_id, err)
+          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,int_arr,data_dim1,err)
+          call h5dclose_f(dset_id,err)
+		  forall (i=1:Nflvr) flvr_prpt(i)%ionization_elc_flv = int_arr(i)	
+	
+
+		  call h5dopen_f(fid,'ionization_z_nucleus', dset_id, err)
+          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,int_arr,data_dim1,err)
+          call h5dclose_f(dset_id,err)
+		  forall (i=1:Nflvr) flvr_prpt(i)%Z_nucleus = int_arr(i)
+		  deallocate(int_arr)	
+	
+		  		  
+
 		  
 		  
 		  !Now Load Prtl Data 
@@ -152,9 +170,6 @@ contains
           call h5dclose_f(dset_id,err)
           call h5dopen_f(fid,'flvp', dset_id, err)
           call h5dread_f(dset_id,H5T_NATIVE_INTEGER,flvp(1:used_prtl_arr_size),data_dim1,err)
-          call h5dclose_f(dset_id,err)
-          call h5dopen_f(fid,'tagp', dset_id, err)
-          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,tagp(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
           call h5dopen_f(fid,'xp', dset_id, err)
           call h5dread_f(dset_id,h5real_psn,xp(1:used_prtl_arr_size),data_dim1,err)
@@ -177,7 +192,24 @@ contains
           call h5dopen_f(fid,'var1p', dset_id, err)
           call h5dread_f(dset_id,h5real_psn,var1p(1:used_prtl_arr_size),data_dim1,err)
           call h5dclose_f(dset_id,err)
+
+		  call h5dopen_f(fid,'tagp', dset_id, err)
+          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,tagp(1:used_prtl_arr_size),data_dim1,err)
+          call h5dclose_f(dset_id,err)
+		  call h5dopen_f(fid,'procp', dset_id, err)
+          call h5dread_f(dset_id,H5T_NATIVE_INTEGER,procp(1:used_prtl_arr_size),data_dim1,err)
+          call h5dclose_f(dset_id,err)
+
+		  call h5dopen_f(fid,'qmp', dset_id, err)
+          call h5dread_f(dset_id,h5real_psn,qmp(1:used_prtl_arr_size),data_dim1,err)
+          call h5dclose_f(dset_id,err)
+		  call h5dopen_f(fid,'wtp', dset_id, err)
+          call h5dread_f(dset_id,h5real_psn,wtp(1:used_prtl_arr_size),data_dim1,err)
+          call h5dclose_f(dset_id,err)
 		  call h5fclose_f(fid,err)
+
+
+
           call h5close_f(err)
      end subroutine RestartInitPrtl
 	 

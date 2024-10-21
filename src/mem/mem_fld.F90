@@ -26,7 +26,8 @@ contains
         allocate(VecBx(8,mx*my*mz),VecBy(8,mx*my*mz),VecBz(8,mx*my*mz))	
         allocate(VecJ(12,mx*my*mz,Nthreads))
 #endif
-	    VecEx=0; VecEy=0; VecEz=0; VecBx=0; VecBy=0; VecBz=0;
+        VecJ = 0 
+		VecEx=0; VecEy=0; VecEz=0; VecBx=0; VecBy=0; VecBz=0;
 			 
 	end subroutine InitAuxFld
 		
@@ -64,6 +65,23 @@ contains
 		 call ResizeFldArr(Bx,mx_new,my_new,mz_new,ind_new,ind)
 		 call ResizeFldArr(By,mx_new,my_new,mz_new,ind_new,ind)
 		 call ResizeFldArr(Bz,mx_new,my_new,mz_new,ind_new,ind)
+
+		 if(pmlBC) then
+			if (allocated(pml_E_psi1%x)) then 
+				call ResizeFldArr(pml_E_psi1%x,mx_new,my_new,mz_new,ind_new,ind)
+				call ResizeFldArr(pml_E_psi1%y,mx_new,my_new,mz_new,ind_new,ind)
+				call ResizeFldArr(pml_E_psi1%z,mx_new,my_new,mz_new,ind_new,ind)
+				call ResizeFldArr(pml_E_psi2%x,mx_new,my_new,mz_new,ind_new,ind)
+				call ResizeFldArr(pml_E_psi2%y,mx_new,my_new,mz_new,ind_new,ind)
+				call ResizeFldArr(pml_E_psi2%z,mx_new,my_new,mz_new,ind_new,ind)
+				call ResizeFldArr(pml_B_psi1%x,mx_new,my_new,mz_new,ind_new,ind)
+				call ResizeFldArr(pml_B_psi1%y,mx_new,my_new,mz_new,ind_new,ind)
+				call ResizeFldArr(pml_B_psi1%z,mx_new,my_new,mz_new,ind_new,ind)
+				call ResizeFldArr(pml_B_psi2%x,mx_new,my_new,mz_new,ind_new,ind)
+				call ResizeFldArr(pml_B_psi2%y,mx_new,my_new,mz_new,ind_new,ind)
+				call ResizeFldArr(pml_B_psi2%z,mx_new,my_new,mz_new,ind_new,ind)
+			end if 
+		 end if
 		 
 	end subroutine ResizeFld
 	

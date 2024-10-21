@@ -7,31 +7,41 @@ module bc_domain_size
 
     implicit none
 	integer, parameter :: domain_size_change_period = 120 ! domain size is adjusted every this many steps 
-	integer, parameter :: expanding_domain_buff_cells = (domain_size_change_period/2)+8 !mutiple of 4	
+	integer, parameter :: expanding_domain_buff_cells = int(domain_size_change_period*c*1.1)+8 !mutiple of 4	
 contains
 	
 	subroutine AutoResizeDomain
 
 	    if(modulo(t,domain_size_change_period).ne.0) return
 		
-		if(bc_face(1)%speed.ne.0) call ResizeDomainLeft(0,nSubDomainsX,xborders,procxind)
-		if(bc_face(2)%speed.ne.0) call ResizeDomainRight(0,nSubDomainsX,xborders,procxind)
-		if(bc_face(3)%speed.ne.0) call ResizeDomainLeft(1,nSubDomainsY,yborders,procyind)
-		if(bc_face(4)%speed.ne.0) call ResizeDomainRight(1,nSubDomainsY,yborders,procyind)
-		if(bc_face(5)%speed.ne.0) call ResizeDomainLeft(2,nSubDomainsZ,zborders,proczind)
-		if(bc_face(6)%speed.ne.0) call ResizeDomainRight(2,nSubDomainsZ,zborders,proczind)
+		if(indepLBaxis.eq.0) then
+			if(bc_face(1)%speed.ne.0) call ResizeDomainLeft(0,nSubDomainsX,xborders,procxind)
+			if(bc_face(2)%speed.ne.0) call ResizeDomainRight(0,nSubDomainsX,xborders,procxind)
+		end if
+		if(indepLBaxis.eq.1) then
+			if(bc_face(3)%speed.ne.0) call ResizeDomainLeft(1,nSubDomainsY,yborders,procyind)
+			if(bc_face(4)%speed.ne.0) call ResizeDomainRight(1,nSubDomainsY,yborders,procyind)
+		end if
+		if(indepLBaxis.eq.2) then
+			if(bc_face(5)%speed.ne.0) call ResizeDomainLeft(2,nSubDomainsZ,zborders,proczind)
+			if(bc_face(6)%speed.ne.0) call ResizeDomainRight(2,nSubDomainsZ,zborders,proczind)
+		end if
 		
 	end subroutine AutoResizeDomain
 	
 	subroutine InitialResizeDomain
-
-		call ResizeDomainLeft(0,nSubDomainsX,xborders,procxind)
-		call ResizeDomainRight(0,nSubDomainsX,xborders,procxind)
-	    call ResizeDomainLeft(1,nSubDomainsY,yborders,procyind)
-		call ResizeDomainRight(1,nSubDomainsY,yborders,procyind)
-		call ResizeDomainLeft(2,nSubDomainsZ,zborders,proczind)
-		call ResizeDomainRight(2,nSubDomainsZ,zborders,proczind)
-		
+		if(indepLBaxis.eq.0) then
+			call ResizeDomainLeft(0,nSubDomainsX,xborders,procxind)
+			call ResizeDomainRight(0,nSubDomainsX,xborders,procxind)
+		end if 
+		if(indepLBaxis.eq.1) then
+			call ResizeDomainLeft(1,nSubDomainsY,yborders,procyind)
+			call ResizeDomainRight(1,nSubDomainsY,yborders,procyind)
+		end if
+		if(indepLBaxis.eq.2) then
+			call ResizeDomainLeft(2,nSubDomainsZ,zborders,proczind)
+			call ResizeDomainRight(2,nSubDomainsZ,zborders,proczind)
+		end if
 	end subroutine InitialResizeDomain
 	
 	
@@ -43,13 +53,12 @@ contains
 		 
 		 fid = 2*axis+2
 		 
-		 xb = bc_face(fid)%pos_fld
-		 if(bc_face(fid)%type_fld.eq.'iflw' .or. bc_face(fid)%type_fld.eq.'attn') xb = xb + bc_face(fid)%attn_thickness
-		 xb = max(xb,bc_face(fid)%pos_prtl)
-		 
+		 xb = bc_face(fid)%pos_fld + bc_face(fid)%attn_thickness
+		 if(bc_face(fid)%type_prtl.ne.'prdc') xb = max(xb,bc_face(fid)%pos_prtl)
+		 		 
 		 inc = 0 
 		 if(bc_face(fid)%speed.gt.0) then 
-			 call CalcExpansionInc(inc, xb, borders(nSubDomains) )
+			 call CalcExpansionIncRight(inc, xb, borders(nSubDomains) )
 		 else 
 			 !Note: currently subdomains at the boundary are not allowed to shrink independently 
 			 ! box remiains a cuboid; otherwise at least "savedata" and this routine need to become more general 
@@ -64,7 +73,6 @@ contains
 		 borders(nSubDomains) = borders(nSubDomains) + inc
 		 if(indepLBaxis.eq.axis) ProcGrid(iproc,jproc)%borders(nSubDomains) = borders(nSubDomains) 
 		 
-		  
 		 if( inc.ne.0 .and. procind.eq.nSubDomains-1 ) then 
 			 
 #ifdef gpu
@@ -86,13 +94,13 @@ contains
 				
 		 end if
 		 
-	     call MPI_Barrier(MPI_COMM_WORLD, ierr) 
+	     call MPI_Barrier(MPI_COMM_WORLD) 
 		 
 		 !In general, all subdomains need to reset their neighbors since size at a ngbr might have changed independently
 		 call ResetCommSubdomains 
 		
 		 box_bounds(fid)=borders(nSubDomains) !Note : in general, may need to find global min,max when needed , e.g. before writing data
-		 
+		 		 
 	end subroutine ResizeDomainRight
 	
 	
@@ -104,18 +112,17 @@ contains
 		 
 		 fid = 2*axis+1
 				 
-		 xb = bc_face(fid)%pos_fld
-		 if(bc_face(fid)%type_fld.eq.'iflw' .or. bc_face(fid)%type_fld.eq.'attn') xb = xb - bc_face(fid)%attn_thickness
-		 xb = min(xb, bc_face(fid)%pos_prtl)
+		 xb = bc_face(fid)%pos_fld - bc_face(fid)%attn_thickness
+		 if(bc_face(fid)%type_prtl.ne.'prdc') xb = min(xb, bc_face(fid)%pos_prtl)
 		 
 		 inc=0
 		 if(bc_face(fid)%speed.lt.0) then 
-			 call CalcExpansionInc(inc, xb, borders(0) )
+			 call CalcExpansionIncLeft(inc, xb, borders(0) )
 		 else 
 			 !Note: currently subdomains at the boundary are not allowed to shrink independently 
 			 ! box remiains a cuboid; otherwise at least "savedata" and this routine need to become more general 
 			 x1 = borders(1)
-			 call MPI_AllREDUCE(MPI_IN_PLACE,x1,1,MPI_INTEGER,mpi_min, MPI_COMM_WORLD)
+			 call MPI_AllREDUCE( MPI_IN_PLACE, x1, 1, MPI_INTEGER, mpi_min, MPI_COMM_WORLD)
 			 xb = max(real(borders(0),dbpsn),xb)
 			 xb = min(real(x1,dbpsn),xb)
 			 if(xb.gt.borders(0)) call CalcContractionInc(inc, min(real(x1,dbpsn),xb), borders(0) )
@@ -150,7 +157,7 @@ contains
 				
 		 end if 
 		 
-		 call MPI_Barrier(MPI_COMM_WORLD, ierr) 
+		 call MPI_Barrier(MPI_COMM_WORLD) 
 		 
 		 call ResetCommSubdomains
 		 
@@ -176,15 +183,25 @@ contains
     end subroutine ShiftPrtlPos
 	
 		
-	subroutine CalcExpansionInc(inc,xb,x2)
+	subroutine CalcExpansionIncRight(inc,xb,x2)
 		integer :: inc, x2
 		real(dbpsn) :: xb
 		
-		if( abs(x2-xb) .lt. expanding_domain_buff_cells) then
+		if( x2 .lt. xb + expanding_domain_buff_cells) then
 			inc = expanding_domain_buff_cells 
 		end if 
 
-	end subroutine CalcExpansionInc
+	end subroutine CalcExpansionIncRight
+	
+	subroutine CalcExpansionIncLeft(inc,xb,x2)
+		integer :: inc, x2
+		real(dbpsn) :: xb
+		
+		if( xb  .lt. x2 + expanding_domain_buff_cells) then
+			inc = expanding_domain_buff_cells 
+		end if 
+
+	end subroutine CalcExpansionIncLeft
 	
 	subroutine CalcContractionInc(inc,xb,x2)
 		integer :: inc, x2

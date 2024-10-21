@@ -10,7 +10,9 @@ module bc
 	use bc_inflow
 	use bc_curved_surf
 	use bc_reflect
+	use bc_pml
 	use subdomains
+	!use ionization
 #ifdef gpu
     use bc_gpu 
 #endif	
@@ -39,6 +41,13 @@ contains
 			 if(present(AttnScale)) bc_face(side_ind)%attn_scale = real(AttnScale,psn)
 	 		 call CheckAttnBCPositioning(side_ind)
 		 end if
+
+		 if(Type.eq.'pml') then
+			bc_face(side_ind)%attn_thickness = 4.0 !default
+			if(present(AttnThickness)) bc_face(side_ind)%attn_thickness = real(AttnThickness,psn)
+			call SetPMLParameters(side_ind,bc_face(side_ind)%attn_thickness)
+			call CheckAttnBCPositioning(side_ind)
+		 end if  
 
 	end subroutine SetBC_Fld	 		
 
@@ -229,6 +238,8 @@ contains
 	subroutine EnforceBC_PostMovDep
 
 		if(inflowBC) call InflowBC_Prtl
+
+		if(ionize_prtl) call IonizePrtls
 				
 		if(bc_face(4)%type_prtl.eq.'refl') call RefBC_Prtl_Top(bc_face(4)%pos_prtl)
 		if(bc_face(3)%type_prtl.eq.'refl') call RefBC_Prtl_Bottom(bc_face(3)%pos_prtl)	
@@ -265,12 +276,12 @@ contains
 		
 		select case (bc_face(5)%type_prtl)
 			case('remv')
-				call RemovePrtl_Left( bc_pos_local(5, bc_face(5)%pos_prtl), qp,flvp,tagp,yp,xp,zp,up,vp,wp)
+				call RemovePrtl_Left( bc_pos_local(5, bc_face(5)%pos_prtl), qp,flvp,tagp,zp,xp,yp,up,vp,wp)
 		end select
 		
 		select case (bc_face(6)%type_prtl)
 			case('remv')
-				call RemovePrtl_Right( bc_pos_local(6, bc_face(6)%pos_prtl), qp,flvp,tagp,yp,xp,zp,up,vp,wp)	
+				call RemovePrtl_Right( bc_pos_local(6, bc_face(6)%pos_prtl), qp,flvp,tagp,zp,xp,yp,up,vp,wp)	
 		end select
 		
 		
@@ -331,8 +342,8 @@ contains
 	subroutine updateBC_Pos
 		integer :: n
 		do n=1,6
-			bc_face(n)%pos_fld = bc_face(n)%pos_fld + bc_face(n)%speed*c
-			bc_face(n)%pos_prtl = bc_face(n)%pos_prtl + bc_face(n)%speed*c
+			if(bc_face(n)%type_fld .ne.'prdc') bc_face(n)%pos_fld = bc_face(n)%pos_fld + bc_face(n)%speed*c
+			if(bc_face(n)%type_prtl.ne.'prdc') bc_face(n)%pos_prtl = bc_face(n)%pos_prtl + bc_face(n)%speed*c
 		end do 
 	end subroutine updateBC_Pos
 	
@@ -518,7 +529,8 @@ subroutine OpenBC_Prtl_Right(xmax,dx)
                 v0 = vel(j,k)
 				if(v0.gt.0) v0=0.0
 				gamma=sqrt(1.0_psn+up(n)*up(n)+vp(n)*vp(n)+wp(n)*wp(n))
-                call InsertNewPrtl(2*xmax_local-xp(n),yp(n),zp(n),up(n)-gamma*v0,vp(n),wp(n),qp(n),tagp(n),flvp(n),var1p(n))
+				!particle is not tagged
+                call InsertNewPrtl(2*xmax_local-xp(n),yp(n),zp(n),up(n)-gamma*v0,vp(n),wp(n),qp(n),flvp(n),var1p(n))
 			end if
 		end do
 	end if
@@ -577,7 +589,8 @@ subroutine OpenBC_Prtl_Left(xmin,dx)
 ! 				if(flvp(n).eq.2) v0=vel2(j,k)
 				if(v0.lt.0) v0=0.0
 				gamma=sqrt(1.0_psn+up(n)*up(n)+vp(n)*vp(n)+wp(n)*wp(n))
-				call InsertNewPrtl(2*xmin_local-xp(n),yp(n),zp(n),up(n)-gamma*v0,vp(n),wp(n),qp(n),tagp(n),flvp(n),var1p(n))
+				!particle is not tagged
+				call InsertNewPrtl(2*xmin_local-xp(n),yp(n),zp(n),up(n)-gamma*v0,vp(n),wp(n),qp(n),flvp(n),var1p(n))
 			end if
 		end do
 		

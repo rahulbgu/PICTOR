@@ -23,8 +23,8 @@ module cyl_savedata_routines
 	            do i=i1,mx-3
 					 r=(i-3.0_psn)+rmin
 					 rp=r+0.5_psn
-	                 Bfld_energy=Bfld_energy+(r*(Bx(i,j,k)**2+rp*By(i,j,k)**2+rp*Bz(i,j,k)**2))*dtheta
-	                 Efld_energy=Efld_energy+(rp*(Ex(i,j,k)**2+r*Ey(i,j,k)**2+r*Ez(i,j,k)**2))*dtheta
+	                 Bfld_energy=Bfld_energy+( r*Bx(i,j,k)**2  +rp*By(i,j,k)**2 +rp*Bz(i,j,k)**2 )*dtheta
+	                 Efld_energy=Efld_energy+( rp*Ex(i,j,k)**2 + r*Ey(i,j,k)**2  +r*Ez(i,j,k)**2 )*dtheta
 	            end do
 	         end do
          end do

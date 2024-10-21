@@ -20,9 +20,13 @@ contains
 				u(n)=0
 				v(n)=0
 				w(n)=0
-				x(n)=3.5
-				y(n)=3.5
-				z(n)=zmin
+				x(n)=3.8_psn
+				y(n)=3.8_psn
+#ifdef twoD
+                z(n)=1.5_psn 
+#else
+                z(n)=3.8_psn
+#endif	
 				tag(n) = 0
 				count = count +1 
 			end if  
@@ -45,9 +49,13 @@ contains
 				u(n)=0
 				v(n)=0
 				w(n)=0
-				x(n)=3.5
-				y(n)=3.5
-				z(n)=zmin
+				x(n)=3.8_psn
+				y(n)=3.8_psn
+#ifdef twoD
+                z(n)=1.5_psn
+#else
+                z(n)=3.8_psn
+#endif				
 				tag(n)=0
 				count = count +1 
 			end if  

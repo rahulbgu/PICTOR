@@ -15,13 +15,6 @@ contains
 	 subroutine UpdateCurrentAllFaces(Fldx,Fldy,Fldz)
          real(psn), dimension(:,:,:) :: Fldx,Fldy,Fldz
 
-! 		 call SendRecvCurrentYZ(Fldx,Fldy,Fldz)
-! 		 call SendRecvCurrentZX(Fldx,Fldy,Fldz)
-! #ifndef twoD
-!        call SendRecvCurrentXY(Fldx,Fldy,Fldz)
-! #endif
-
-
 		 
 		 if(indepLBaxis.eq.0) call SendRecvCurrentYZ(Fldx,Fldy,Fldz)
 		 if(indepLBaxis.eq.1) call SendRecvCurrentZX(Fldx,Fldy,Fldz)
@@ -35,7 +28,6 @@ contains
 #ifndef twoD
          if(indepLBaxis.ne.2) call SendRecvCurrentXY(Fldx,Fldy,Fldz)
 #endif
-
 
 
 	 end subroutine UpdateCurrentAllFaces
@@ -82,12 +74,6 @@ contains
 	 
 	 subroutine SendRecvFlds(Fldx,Fldy,Fldz)
          real(psn), dimension(:,:,:) :: Fldx,Fldy,Fldz
-
-! #ifndef twoD
-! 	     call SendRecvFldsXY(Fldx,Fldy,Fldz)
-! #endif
-!  		 call SendRecvFldsZX(Fldx,Fldy,Fldz)
-!        call SendRecvFldsYZ(Fldx,Fldy,Fldz)
 
 
 		 if(indepLBaxis.ne.0) call SendRecvFldsYZ(Fldx,Fldy,Fldz)
@@ -243,20 +229,42 @@ contains
 		 real(psn), dimension(:,:,:) :: Fld, buff 
 		 integer, dimension(:) :: ind
 		 integer :: sx,sy,sz
+		 integer :: i,j,k
+		 
 		 sx=ind(2)-ind(1) +1 
 		 sy=ind(4)-ind(3) +1
 		 sz=ind(6)-ind(5) +1 
-		 buff(1:sx,1:sy,1:sz) = Fld(ind(1):ind(2),ind(3):ind(4),ind(5):ind(6)) 
+		 !buff(1:sx,1:sy,1:sz) = Fld(ind(1):ind(2),ind(3):ind(4),ind(5):ind(6))
+		 do k=1,sz
+			do j=1,sy
+!$OMP SIMD									
+				do i=1,sx
+					if(ind(1)+i-1.lt.1) print*,'wrong access at ', proc, 'ind is', ind
+					buff(i,j,k) = Fld( ind(1)+i-1, ind(3)+j-1, ind(5)+k-1)
+				end do
+			end do 
+		 end do 
+		 
 	 end subroutine CopyFldToBuff
 	 
 	 subroutine CopyBuffToFld(Fld,buff,ind)
 		 real(psn), dimension(:,:,:) :: Fld, buff 
 		 integer, dimension(:) :: ind
 		 integer :: sx,sy,sz
+		 integer :: i,j,k
+		 
 		 sx=ind(2)-ind(1) +1 
 		 sy=ind(4)-ind(3) +1
 		 sz=ind(6)-ind(5) +1 
-		 Fld(ind(1):ind(2),ind(3):ind(4),ind(5):ind(6)) =  buff(1:sx,1:sy,1:sz)
+		 !Fld(ind(1):ind(2),ind(3):ind(4),ind(5):ind(6)) =  buff(1:sx,1:sy,1:sz)
+		 do k=1,sz
+			do j=1,sy
+!$OMP SIMD									
+				do i=1,sx
+					Fld( ind(1)+i-1, ind(3)+j-1, ind(5)+k-1) = buff(i,j,k) 
+				end do
+			end do 
+		 end do 
 	 end subroutine CopyBuffToFld
 	 
 	 !---------------------------------------------------------------------------------------
@@ -281,10 +289,21 @@ contains
 		 real(psn), dimension(:,:,:) :: Fld, buff 
 		 integer, dimension(:), intent(IN) :: ind
 		 integer :: sx,sy,sz
+		 integer :: i,j,k
 		 sx=ind(2)-ind(1) +1 
 		 sy=ind(4)-ind(3) +1
 		 sz=ind(6)-ind(5) +1 
-		 Fld(ind(1):ind(2),ind(3):ind(4),ind(5):ind(6)) = Fld(ind(1):ind(2),ind(3):ind(4),ind(5):ind(6)) + buff(1:sx,1:sy,1:sz)
+		 !Fld(ind(1):ind(2),ind(3):ind(4),ind(5):ind(6)) = Fld(ind(1):ind(2),ind(3):ind(4),ind(5):ind(6)) + buff(1:sx,1:sy,1:sz)
+
+		 do k=1,sz
+			do j=1,sy
+!$OMP SIMD					
+				do i=1,sx
+					Fld( ind(1)+i-1, ind(3)+j-1, ind(5)+k-1) = Fld( ind(1)+i-1, ind(3)+j-1, ind(5)+k-1) + buff(i,j,k)
+				end do
+			end do 
+		 end do 
+
 	 end subroutine AddBuffToFld
 	 
      

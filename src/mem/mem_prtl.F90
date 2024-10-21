@@ -1,21 +1,24 @@
 module mem_prtl
      use parameters
-     use vars
+     use vars 
      implicit none 
      
 contains 
      recursive subroutine DeletePrtl(n) !free the slot of particle at i if particle is leaving this proc
           integer :: n
                     qp(n)=0.0_psn
-                    xp(n)=xmin+0.8_psn
-                    yp(n)=ymin+0.8_psn
-                    zp(n)=zmin+0.8_psn
+                    xp(n)=3.8_psn
+                    yp(n)=3.8_psn
+#ifdef twoD
+					zp(n)=1.5_psn
+#else
+					zp(n)=3.8_psn
+#endif
                     up(n)=0.0_psn
                     vp(n)=0.0_psn
                     wp(n)=0.0_psn
                     tagp(n)=0
                     flvp(n)=0
-					!var1p(n)=0.0_psn					
      end subroutine DeletePrtl 	 
 	 
      !the following subroutine is called when the main prtl arrays needs to be resized
@@ -30,7 +33,10 @@ contains
 			  used_ind_this=used_prtl_arr_size
 		  end if 
 
-          allocate(qp_temp(new_size),xp_temp(new_size),yp_temp(new_size),zp_temp(new_size),up_temp(new_size),vp_temp(new_size),wp_temp(new_size),tagp_temp(new_size),flvp_temp(new_size),var1p_temp(new_size))
+          allocate(qp_temp(new_size),xp_temp(new_size),yp_temp(new_size),zp_temp(new_size),up_temp(new_size),vp_temp(new_size),wp_temp(new_size),flvp_temp(new_size),var1p_temp(new_size))
+		  allocate(tagp_temp(new_size),procp_temp(new_size))
+		  allocate(qmp_temp(new_size),wtp_temp(new_size))
+		  
 		  do n=1,used_ind_this
 				    qp_temp(n)=qp(n)
 					xp_temp(n)=xp(n)
@@ -39,41 +45,58 @@ contains
 					up_temp(n)=up(n)
 					vp_temp(n)=vp(n)
 					wp_temp(n)=wp(n)
-					tagp_temp(n)=tagp(n)
 					flvp_temp(n)=flvp(n)
 					var1p_temp(n)=var1p(n)
+
+					tagp_temp(n)=tagp(n)
+					procp_temp(n)=procp(n)
+
+					qmp_temp(n)=qmp(n)
+					wtp_temp(n)=wtp(n)
 		  end do
-		  deallocate(qp,xp,yp,zp,up,vp,wp,tagp,flvp,var1p)
-          call move_alloc(qp_temp,qp)
+		  
+		  deallocate(qp,xp,yp,zp,up,vp,wp,flvp,var1p)
+		  deallocate(tagp,procp)
+		  deallocate(qmp,wtp)
+          
+		  call move_alloc(qp_temp,qp)
 		  call move_alloc(xp_temp,xp)
 		  call move_alloc(yp_temp,yp)
 		  call move_alloc(zp_temp,zp)
 		  call move_alloc(up_temp,up)
 		  call move_alloc(vp_temp,vp)
 		  call move_alloc(wp_temp,wp)
-		  call move_alloc(tagp_temp,tagp)
 		  call move_alloc(flvp_temp,flvp)
-		  call move_alloc(var1p_temp,var1p)		            		            
-          prtl_arr_size=new_size
+		  call move_alloc(var1p_temp,var1p)		
+		  
+		  call move_alloc(tagp_temp,tagp)
+		  call move_alloc(procp_temp,procp)
+
+		  call move_alloc(qmp_temp,qmp)
+		  call move_alloc(wtp_temp,wtp)
+
+          
+		  prtl_arr_size=new_size
 		  
 		  do n=used_ind_this+1,prtl_arr_size
 			  qp(n)=0
 			  flvp(n)=0
 		  end do
-     end subroutine ReshapePrtlArr
-		 
+     end subroutine ReshapePrtlArr	 
+	 		 
 	 !-------------------------------------------------------------------------------------------------
 	 ! Subroutine to help fill particle arrays
 	 !-------------------------------------------------------------------------------------------------
 	 ! use the following subroutine to directly insert particles into the particle arrays 
-	 subroutine InsertParticleAt(ind1,x1,y1,z1,u1,v1,w1,q1,a1,flv1,var1_this)
+	 subroutine InsertParticleAt(ind1,x1,y1,z1,u1,v1,w1,q1,flv1,var1,tag1, proc1, qm1, wt1)
 	      integer    :: ind1
 	      real(psn)  :: x1,y1,z1
 	      real(psn)  :: u1,v1,w1
 	      real(psn)  :: q1
-		  real(psn)  :: var1_this
-	      integer    :: a1
+		  real(psn)  :: var1
 	      integer    :: flv1
+		  integer, optional   :: tag1, proc1
+		  real(psn), optional   :: qm1 , wt1 
      
 	      xp(ind1)=x1
 	      yp(ind1)=y1
@@ -82,21 +105,29 @@ contains
 	      vp(ind1)=v1
 	      wp(ind1)=w1
 	      qp(ind1)=q1
-	      tagp(ind1)=a1
 	      flvp(ind1)=flv1
-		  var1p(ind1)=var1_this
+		  var1p(ind1)=var1
+		  
+		  if(present(tag1)) tagp(ind1)=tag1
+		  if(present(proc1)) procp(ind1)=proc1
+
+		  if(present(qm1)) qmp(ind1)=qm1
+		  if(present(wt1)) wtp(ind1)=wt1
+
 	 end subroutine InsertParticleAt 
 
 	 !use the following subroutine to insert an new particle into the particle arrays
-	 subroutine InsertNewPrtl(x1,y1,z1,u1,v1,w1,q1,a1,flv1,var1_this)
+	 subroutine InsertNewPrtl(x1,y1,z1,u1,v1,w1,q1,flv1,var1,tag1, proc1, qm1, wt1)
 	      real(psn)  :: x1,y1,z1
 	      real(psn)  :: u1,v1,w1
 	      real(psn)  :: q1
-		  real(psn)  :: var1_this
-	      integer    :: a1
+		  real(psn)  :: var1
 	      integer     :: flv1
+		  integer, optional   :: tag1, proc1
+		  real(psn), optional   :: qm1 , wt1 
+
 	 	  if(used_prtl_arr_size.ge.prtl_arr_size) call ReshapePrtlArr(int(1.1*prtl_arr_size+100)) ! make sure that the prtl array is large enough
-	 	  call InsertParticleAt(used_prtl_arr_size+1,x1,y1,z1,u1,v1,w1,q1,a1,flv1,var1_this)	
+	 	  call InsertParticleAt(used_prtl_arr_size+1,x1,y1,z1,u1,v1,w1,q1,flv1,var1,tag1,proc1,qm1,wt1)	
 		  used_prtl_arr_size=used_prtl_arr_size+1
 	 	  np=np+1
 	 end subroutine InsertNewPrtl
@@ -116,7 +147,13 @@ contains
 			 wp(used_prtl_arr_size+n) = p(n)%w
 			 var1p(used_prtl_arr_size+n) = p(n)%var1
 			 flvp(used_prtl_arr_size+n) = p(n)%flv
+			 
 			 tagp(used_prtl_arr_size+n) = p(n)%tag
+			 procp(used_prtl_arr_size+n) = p(n)%proc
+
+			 qmp(used_prtl_arr_size+n) = p(n)%qm
+			 wtp(used_prtl_arr_size+n) = p(n)%wt
+		 
 		 end do	
 		 used_prtl_arr_size = used_prtl_arr_size+nprtl
 		 np = np +nprtl 
@@ -132,7 +169,9 @@ contains
           integer, dimension (mx,my,mz) :: pcount 
 		  integer :: count, np_cpu
 		  integer :: ind
-          pcount=0
+		  integer :: new_prtl_arr_size
+          
+		  pcount=0
 		  count=0
 		  
       
@@ -150,6 +189,11 @@ contains
               end if
           end do
 		  np_cpu=count
+
+		  new_prtl_arr_size = prtl_arr_size
+		  if ( new_prtl_arr_size .gt. int( 1.25*np_cpu + 1000000) ) then
+				new_prtl_arr_size =  int( 1.25*np_cpu + 1000000)
+		  end if 
 		  
 		  
         offset=1
@@ -169,16 +213,22 @@ contains
                end do 
           end do
 		            
-          allocate(qp_temp(prtl_arr_size))
-          allocate(xp_temp(prtl_arr_size))
-          allocate(yp_temp(prtl_arr_size))
-          allocate(zp_temp(prtl_arr_size))
-          allocate(up_temp(prtl_arr_size))
-          allocate(vp_temp(prtl_arr_size))
-          allocate(wp_temp(prtl_arr_size))
-          allocate(tagp_temp(prtl_arr_size))
-          allocate(flvp_temp(prtl_arr_size))
-          allocate(var1p_temp(prtl_arr_size))	
+          allocate(qp_temp(new_prtl_arr_size))
+          allocate(xp_temp(new_prtl_arr_size))
+          allocate(yp_temp(new_prtl_arr_size))
+          allocate(zp_temp(new_prtl_arr_size))
+          allocate(up_temp(new_prtl_arr_size))
+          allocate(vp_temp(new_prtl_arr_size))
+          allocate(wp_temp(new_prtl_arr_size))
+          allocate(flvp_temp(new_prtl_arr_size))
+          allocate(var1p_temp(new_prtl_arr_size))	
+
+		  allocate(tagp_temp(new_prtl_arr_size))
+		  allocate(procp_temp(new_prtl_arr_size))
+
+		  allocate(qmp_temp(new_prtl_arr_size))
+		  allocate(wtp_temp(new_prtl_arr_size))
+
 		  
 	  
 
@@ -209,18 +259,27 @@ contains
                  up_temp(ind)=up(n)
                  vp_temp(ind)=vp(n)
                  wp_temp(ind)=wp(n)
-                 tagp_temp(ind)=tagp(n)
                  flvp_temp(ind)=flvp(n)	
-                 var1p_temp(ind)=var1p(n)				 				 			 				 
+                 var1p_temp(ind)=var1p(n)	
+
+				 tagp_temp(ind)=tagp(n)
+				 procp_temp(ind) = procp(n)
+
+				 qmp_temp(ind) = qmp(n)
+				 wtp_temp(ind) = wtp(n)
+
               end if
           end do
 		  
-		  do n=np_cpu+1,prtl_arr_size
+		  do n=np_cpu+1,new_prtl_arr_size
 			  qp_temp(n)=0
 			  flvp_temp(n)=0
 		  end do 
 		  
-		  deallocate(qp,xp,yp,zp,up,vp,wp,tagp,flvp,var1p)		 
+		  deallocate(qp,xp,yp,zp,up,vp,wp,flvp,var1p)
+		  deallocate(tagp,procp)
+		  deallocate(qmp,wtp)
+
 		  call move_alloc(qp_temp,qp)
 		  call move_alloc(xp_temp,xp)
           call move_alloc(yp_temp,yp)
@@ -228,11 +287,17 @@ contains
           call move_alloc(up_temp,up)
           call move_alloc(vp_temp,vp)
           call move_alloc(wp_temp,wp)
-          call move_alloc(tagp_temp,tagp)
           call move_alloc(flvp_temp,flvp)
           call move_alloc(var1p_temp,var1p)
-		  
+
+		  call move_alloc(tagp_temp,tagp)
+		  call move_alloc(procp_temp,procp)
+
+		  call move_alloc(qmp_temp,qmp)
+		  call move_alloc(wtp_temp,wtp)
+
 		  used_prtl_arr_size=np_cpu!update the actual size of occupied part of prtl array  
+		  prtl_arr_size = new_prtl_arr_size
 end subroutine ReorderPrtlArr
 
 
@@ -241,7 +306,9 @@ subroutine InitPrtlArr(size)
 	
     prtl_arr_size = size
 	
-	if(allocated(qp)) deallocate(qp,xp,yp,zp,up,vp,wp,tagp,flvp,var1p)
+	if(allocated(qp)) deallocate(qp,xp,yp,zp,up,vp,wp,flvp,var1p)
+	if(allocated(tagp)) deallocate(tagp,procp)
+	if(allocated(qmp)) deallocate(qmp,wtp)
 	
 	allocate(qp(prtl_arr_size))
     allocate(xp(prtl_arr_size)) 
@@ -250,11 +317,17 @@ subroutine InitPrtlArr(size)
     allocate(up(prtl_arr_size)) 
     allocate(vp(prtl_arr_size)) 
     allocate(wp(prtl_arr_size)) 
-    allocate(tagp(prtl_arr_size)) 
     allocate(flvp(prtl_arr_size))
     allocate(var1p(prtl_arr_size)) 
-  
+
+	allocate(tagp(prtl_arr_size)) 
+	allocate(procp(prtl_arr_size))
+	
+	allocate(qmp(prtl_arr_size)) 
+	allocate(wtp(prtl_arr_size))
+	  
     qp=0
+	flvp=0 
     used_prtl_arr_size=0
     np=0 
 end subroutine InitPrtlArr 

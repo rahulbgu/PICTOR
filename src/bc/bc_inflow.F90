@@ -32,6 +32,7 @@ contains
 		integer :: n 
 		real(psn) :: pos
         
+		!currently the reflection of particle is implemented only for the side =2 (right) boundary
 		if(bc_face(2)%type_prtl.eq.'iflw') then 
 			do n=1,nInjPrtl
 				if(InjPrtl(n)%prtl_placement.eq.'rndm') then 
@@ -170,6 +171,10 @@ contains
 					if(yglobal.gt.bc_face(3)%pos_prtl+vy*c) acpt = .false.
 				case(4)
 					if(yglobal.lt.bc_face(4)%pos_prtl+vy*c) acpt = .false.
+				case(5)
+					if(zglobal.gt.bc_face(5)%pos_prtl+vz*c) acpt = .false.
+				case(6)
+					if(zglobal.lt.bc_face(6)%pos_prtl+vz*c) acpt = .false.
 			end select
 			
 			

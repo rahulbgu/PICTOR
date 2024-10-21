@@ -2,6 +2,23 @@ module em_update
     use parameters
     use vars
     implicit none
+
+	real(psn), parameter :: beta_xy = 0.0_psn
+    real(psn), parameter :: beta_xz = 0.125_psn
+    real(psn), parameter :: beta_yx = 0.0_psn
+    real(psn), parameter :: beta_yz = 0.125_psn
+    real(psn), parameter :: beta_zx = 0.125_psn*(grid_dz/grid_dx)**2
+    real(psn), parameter :: beta_zy = 0.125_psn*(grid_dz/(grid_dx*dtheta))**2
+    real(psn), parameter :: delta_x = 0 
+    real(psn), parameter :: delta_y = 0 
+    real(psn), parameter :: delta_z = 0.25_psn*( 1.0_psn - (cinv**2) * (sin(0.5_psn*pi*c))**2 )
+    real(psn), parameter :: alpha_x = 1.0_psn - 2.0_psn*beta_xy - 2.0_psn*beta_xz - 3.0_psn*delta_x 
+    real(psn), parameter :: alpha_y = 1.0_psn - 2.0_psn*beta_yx - 2.0_psn*beta_yz - 3.0_psn*delta_y
+    real(psn), parameter :: alpha_z = 1.0_psn - 2.0_psn*beta_zx - 2.0_psn*beta_zy - 3.0_psn*delta_z
+ 
+
+    private :: gradX, gradY, gradZ, gradX1
+
 contains 
 	
      subroutine UpdateEfield
@@ -27,15 +44,11 @@ contains
 					r=( (i-3.0_psn)+rmin )*grid_dx ! in the code units
 					rp_half=r+0.5_psn*grid_dx 
 					rm_half=r-0.5_psn*grid_dx
-#ifndef twoD
+
                     Ex(i,j,k)=Ex(i,j,k)+fldc*(Bz(i,j,k)-Bz(i,j-1,k))/(rp_half*dtheta) - fldc*grid_inv_dz*(By(i,j,k)-By(i,j,k-1))
                     Ey(i,j,k)=Ey(i,j,k)+fldc*grid_inv_dz*(Bx(i,j,k)-Bx(i,j,k-1))-fldc*grid_inv_dx*(Bz(i,j,k)-Bz(i-1,j,k))
                     Ez(i,j,k)=Ez(i,j,k)+fldc*grid_inv_dx*(rp_half*By(i,j,k)-rm_half*By(i-1,j,k))/r - fldc*(Bx(i,j,k)-Bx(i,j-1,k))/(r*dtheta)
-#else
-                    Ex(i,j,k)=Ex(i,j,k)+fldc*(Bz(i,j,k)-Bz(i,j-1,k))/(rp_half*dtheta)
-                    Ey(i,j,k)=Ey(i,j,k)-fldc*grid_inv_dx*(Bz(i,j,k)-Bz(i-1,j,k))
-                    Ez(i,j,k)=Ez(i,j,k)+fldc*( grid_inv_dx*(rp_half*By(i,j,k)-rm_half*By(i-1,j,k)) - (Bx(i,j,k)-Bx(i,j-1,k))/dtheta  )/r
-#endif
+
 					end do
                end do
           end do
@@ -69,15 +82,10 @@ contains
 						r=((i-3.0_psn)+rmin)*grid_dx
 						rp_half=r+0.5_psn*grid_dx
 						rp=r+grid_dx
-#ifndef twoD
-                         Bx(i,j,k)=Bx(i,j,k)-fld_halfc*(Ez(i,j+1,k)-Ez(i,j,k))/(r*dtheta) + fld_halfc*grid_inv_dz*(Ey(i,j,k+1)-Ey(i,j,k))
-                         By(i,j,k)=By(i,j,k)-fld_halfc*grid_inv_dz*(Ex(i,j,k+1)-Ex(i,j,k))+fld_halfc*grid_inv_dx*(Ez(i+1,j,k)-Ez(i,j,k))
-                         Bz(i,j,k)=Bz(i,j,k)-fld_halfc*( grid_inv_dx*(rp*Ey(i+1,j,k)-r*Ey(i,j,k)) - (Ex(i,j+1,k)-Ex(i,j,k))/dtheta )/rp_half
-#else
-                         Bx(i,j,k)=Bx(i,j,k)-fld_halfc*(Ez(i,j+1,k)-Ez(i,j,k))/(r*dtheta)
-                         By(i,j,k)=By(i,j,k)+fld_halfc*grid_inv_dx*(Ez(i+1,j,k)-Ez(i,j,k))
-						 Bz(i,j,k)=Bz(i,j,k)-fld_halfc*( grid_inv_dx*(rp*Ey(i+1,j,k)-r*Ey(i,j,k)) - (Ex(i,j+1,k)-Ex(i,j,k))/dtheta )/rp_half
-#endif
+
+ 						 Bx(i,j,k)=Bx(i,j,k)-fld_halfc*( gradY(Ez,i,j,k) )/(r*dtheta) + fld_halfc*grid_inv_dz*(gradZ(Ey,i,j,k))
+                         By(i,j,k)=By(i,j,k)-fld_halfc*grid_inv_dz*(gradZ(Ex,i,j,k))+fld_halfc*grid_inv_dx*(gradX(Ez,i,j,k))
+                         Bz(i,j,k)=Bz(i,j,k)-fld_halfc*( grid_inv_dx*gradX1(Ey,i,j,k,rp,r)  - gradY(Ex,i,j,k) )/dtheta )/rp_half
                     end do
                end do
           end do
@@ -115,7 +123,6 @@ contains
 		  real(psn) :: r,rmin,rp_half
           integer:: i,j,k,i1    
 		  
- 	      if(RZtwoD) call CurrentAveragingAlongTheta  
 		  
 		  i1=3
  		  if(procxind.eq.0) i1=4
@@ -168,7 +175,7 @@ contains
 					Ez(3,j,k) = Ez(4,jpp,k)
 					
 					
-! 		   			! setting the fld at the axis (as seen by the particles) to zero
+! 		   			!setting the fld at the axis (as seen by the particles) to zero
 ! 					Ex(3,j,k)=0.0_psn
 ! 		   			Ex(2,j,k)=-Ex(4,j,k)
 !
@@ -245,40 +252,41 @@ contains
 		 end do 	
 	 end subroutine UpdateBzAxis
 	 
-	 
- 	!---------------------------------------------------------------------
- 	! The total current is average along the azimuthal direction
- 	! (assumption :: nSubSomainsY=1)
- 	!---------------------------------------------------------------------
-	
- 	subroutine CurrentAveragingAlongTheta  
+	 real(psn) function gradX(F,i,j,k)
+	 real(psn), dimension(:,:,:), intent(in) :: F
+	 integer, intent(in) :: i,j,k
+	 gradX =  alpha_x*( F(i+1,j  ,k  ) - F(i  ,j,  k  )) + &
+			  beta_xz*( F(i+1,j  ,k+1) - F(i  ,j  ,k+1)) + &
+			  beta_xz*( F(i+1,j  ,k-1) - F(i  ,j  ,k-1)) + &
+  end function gradX
 
- 		call AverageAlongTheta(Jx)
- 		call AverageAlongTheta(Jy)
- 		call AverageAlongTheta(Jz)
+  real(psn) function gradX1(F,i,j,k, rp, r)
+  real(psn), dimension(:,:,:), intent(in) :: F
+  real(psn) :: rp , r
+  integer, intent(in) :: i,j,k
+  gradX1 =  alpha_x*( rp*F(i+1,j  ,k  ) - r*F(i  ,j,  k  )) + &
+		    beta_xz*( rp*F(i+1,j  ,k+1) - r*F(i  ,j  ,k+1)) + &
+		    beta_xz*( rp*F(i+1,j  ,k-1) - r*F(i  ,j  ,k-1)) + &
+   end function gradX1
 
- 	end subroutine CurrentAveragingAlongTheta  
-	
- 	subroutine AverageAlongTheta(Fld)
- 		real(psn), dimension(mx,my,mz) :: Fld
- 		real(dbpsn) :: sum
- 		integer :: i,j,k
-		
- 		do k=1,mz
- 			do i=1,mx
- 				sum=0
- 				do j=3,my-3
- 					sum=sum+Fld(i,j,k) 
- 				end do 
- 				sum=sum/ny
- 				do j=1,my
- 					Fld(i,j,k)=sum
- 				end do
- 		    end do 
- 		end do 
-		
- 	end subroutine AverageAlongTheta
-	 
+  real(psn) function gradY(F,i,j,k)
+	 real(psn), dimension(:,:,:), intent(in) :: F
+	 integer, intent(in) :: i,j,k
+	 gradY =  alpha_y*grid_inv_dy*( F(i  ,j+1,k  ) - F(i  ,j,  k  )) + &
+			  beta_yz*grid_inv_dy*( F(i  ,j+1,k+1) - F(i  ,j  ,k+1)) + &
+			  beta_yz*grid_inv_dy*( F(i  ,j+1,k-1) - F(i  ,j  ,k-1)) + &
+  end function gradY
+
+  real(psn) function gradZ(F,i,j,k)
+	 real(psn), dimension(:,:,:), intent(in) :: F
+	 integer, intent(in) :: i,j,k
+	 gradZ =  alpha_z*( F(i  ,j  ,k+1) - F(i  ,j,  k  )) + &
+			  beta_zx*( F(i+1,j  ,k+1) - F(i+1,j,  k  )) + &
+			  beta_zx*( F(i-1,j  ,k+1) - F(i-1,j,  k  )) + &
+			  beta_zy*( F(i  ,j+1,k+1) - F(i  ,j+1,k  )) + &
+			  beta_zy*( F(i  ,j-1,k+1) - F(i  ,j-1,k  )) + &
+			  delta_z*( F(i  ,j  ,k+2) - F(i  ,j  ,k-1)) 
+  end function gradZ
 
 
 end module em_update

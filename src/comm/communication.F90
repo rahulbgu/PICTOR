@@ -25,73 +25,78 @@ contains
           select case(psn)
           case(kind(1.0d0))
              mpi_psn=MPI_DOUBLE_PRECISION !mpi precision 
-			 
+			
+             !reals
              offsets(nblocks)=0
              oldtypes(nblocks)=MPI_DOUBLE_PRECISION
-             blockcounts(nblocks)=8
+             blockcounts(nblocks)=10
              call MPI_TYPE_EXTENT(MPI_DOUBLE_PRECISION,extent,ierr)
              nblocks=nblocks+1
 			 
+             !integers
              offsets(nblocks)=offsets(nblocks-1)+blockcounts(nblocks-1)*extent
              oldtypes(nblocks)=MPI_INTEGER 
-             blockcounts(nblocks)=2
+             blockcounts(nblocks)=4
              call MPI_TYPE_EXTENT(MPI_INTEGER,extent,ierr)
-             nblocks=nblocks+1  
+             nblocks=nblocks+1 
 
           case(kind(1.0e0))
              mpi_psn=MPI_REAL !mpi precision
            
+             !reals
              offsets(nblocks)=0
              oldtypes(nblocks)=MPI_REAL 
-             blockcounts(nblocks)=8
+             blockcounts(nblocks)=10
              call MPI_TYPE_EXTENT(MPI_REAL,extent,ierr)
              nblocks=nblocks+1       
 			 
+             !integers
              offsets(nblocks)=offsets(nblocks-1)+blockcounts(nblocks-1)*extent
              oldtypes(nblocks)=MPI_INTEGER 
-             blockcounts(nblocks)=2
+             blockcounts(nblocks)=4
              call MPI_TYPE_EXTENT(MPI_INTEGER,extent,ierr)
-             nblocks=nblocks+1         
+             nblocks=nblocks+1   
+
           end select           
           
           call MPI_TYPE_STRUCT(nblocks,blockcounts,offsets,oldtypes,mpi_prtltype,ierr)
           call MPI_TYPE_COMMIT(mpi_prtltype, ierr)
 		  
-		  call InitTimer
+		call InitTimer
      
      end subroutine StartMPI
+
+     function get_current_time()
+          real(dbpsn) :: get_current_time
+           
+#ifdef OPEN_MP
+          get_current_time=omp_get_wtime()
+#else		  		  
+          get_current_time=MPI_Wtime()
+#endif	
+     end function get_current_time 
+
      subroutine StartTimer(tind)
           integer :: tind
-#ifdef OPEN_MP
-          exec_time(tind)=omp_get_wtime()
-#else		  		  
-          exec_time(tind)=MPI_Wtime()
-#endif		  
+          exec_time(tind)=get_current_time()	  
      end subroutine StartTimer
+
      subroutine StopTimer(tind)
           integer :: tind
-#ifdef OPEN_MP		  
-          exec_time(tind)=omp_get_wtime()-exec_time(tind)
-#else		  
-          exec_time(tind)=MPI_Wtime()-exec_time(tind)
-#endif		  
+          exec_time(tind)=get_current_time()	- exec_time(tind)		  
      end subroutine StopTimer
-	 
-	 subroutine InitTimer
+ 
+	subroutine InitTimer
 		 integer :: n
 		 do n=1,size(exec_time)
-#ifdef OPEN_MP
-         	exec_time(n)=omp_get_wtime()
-#else		  		  
-       		exec_time(n)=MPI_Wtime()
-#endif				 
+         	     exec_time(n)=get_current_time()				 
 		 end do
 	 end subroutine InitTimer
      
 	 subroutine Abort(err_code)
 		 integer :: err_code
 		 if(err_code.eq.12) then 
-			 if(proc.eq.0) print*,'Low memory! Too many particles on GPU!'
+			 if(proc.eq.0) print*,'Out of memory! Too many particles on GPU!'
 		 end if
 		 call MPI_Abort(MPI_COMM_WORLD, err_code, ierr)
 	 end subroutine Abort

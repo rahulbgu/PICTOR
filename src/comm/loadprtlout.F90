@@ -10,10 +10,12 @@ contains
 ! For partial safety safety check for the usage elsewhere
 !-------------------------
 	 
-     subroutine LoadPrtlOutliers(q,x,y,z,u,v,w,var1,flv,tag,min_ind,max_ind)
+     subroutine LoadPrtlOutliers(q,x,y,z,u,v,w,var1,flv,tag,proc,qm,wt,min_ind,max_ind)
 		 implicit none
 		 real(psn), dimension(:) :: q,x,y,z,u,v,w,var1
-		 integer, dimension(:) :: flv,tag
+		 real(psn), dimension(:) :: qm, wt
+		 integer, dimension(:) :: flv
+		 integer, dimension(:) :: tag, proc
 		 integer :: min_ind, max_ind
          integer:: i,off
 
@@ -31,7 +33,7 @@ contains
 #ifndef twoD						   
                          if(z(i).le.(zmax+xmin-x(i)).and.(z(i).ge.(zmin-xmin+x(i)))) then 
 #endif						 					                     
-                             call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,ngbr_send(1),i)
+                             call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,proc,qm,wt,ngbr_send(1),i)
                              call RemovePrtl(q,flv,tag,x,y,z,u,v,w,i) 
 #ifndef twoD							 
                         end if
@@ -42,7 +44,7 @@ contains
 #ifndef twoD						
                          if((z(i).le.(zmax-xmax+x(i))).and.(z(i).ge.(zmin+xmax-x(i)))) then
 #endif
-							 call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,ngbr_send(2),i)
+							 call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,proc,qm,wt,ngbr_send(2),i)
                              call RemovePrtl(q,flv,tag,x,y,z,u,v,w,i)  
 #ifndef twoD							    
                         end if 
@@ -54,7 +56,7 @@ contains
 #ifndef twoD						
                          if((z(i).ge.(zmin-ymin+y(i))).and.(z(i).le.(zmax+ymin-y(i)))) then
 #endif
-							 call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,ngbr_send(3),i)
+							 call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,proc,qm,wt,ngbr_send(3),i)
                              call RemovePrtl(q,flv,tag,x,y,z,u,v,w,i)
 #ifndef twoD							 
                         end if
@@ -65,7 +67,7 @@ contains
 #ifndef twoD						
                          if((z(i).ge.(zmin+ymax-y(i))).and.(z(i).le.(zmax-ymax+y(i)))) then
 #endif							 
-							 call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,ngbr_send(4),i)
+							 call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,proc,qm,wt,ngbr_send(4),i)
                              call RemovePrtl(q,flv,tag,x,y,z,u,v,w,i)
 #ifndef twoD							 
                         end if
@@ -78,7 +80,7 @@ contains
                     if((z(i).lt.(zmin-xmin+x(i))).and.(z(i).lt.(zmin+xmax-x(i)))) then  
 						 if((z(i).lt.(zmin-ymin+y(i))).and.(z(i).lt.(zmin+ymax-y(i)))) then	 				 
 							
-							 call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,ngbr_send(5),i)
+							 call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,proc,qm,wt,ngbr_send(5),i)
                              call RemovePrtl(q,flv,tag,x,y,z,u,v,w,i)
                         end if
                     end if
@@ -86,7 +88,7 @@ contains
                     if(z(i).gt.(zmax+xmin-x(i)).and.(z(i).gt.(zmax-xmax+x(i)))) then 
                          if((z(i).gt.(zmax+ymin-y(i))).and.(z(i).gt.(zmax-ymax+y(i)))) then
 
-							 call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,ngbr_send(6),i)
+							 call CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,proc,qm,wt,ngbr_send(6),i)
                              call RemovePrtl(q,flv,tag,x,y,z,u,v,w,i)
                         end if
                     end if
@@ -103,10 +105,12 @@ contains
 
     end subroutine LoadPrtlOutliers
 
-	recursive subroutine CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,list,m)
+	recursive subroutine CopyTransferPrtl(q,x,y,z,u,v,w,var1,flv,tag,proc,qm,wt,list,m)
 	  implicit none 
 	  real(psn), dimension(:) :: q,x,y,z,u,v,w,var1
-	  integer, dimension(:) :: flv,tag
+	  real(psn), dimension(:) :: qm, wt
+	  integer, dimension(:) :: flv
+	  integer, dimension(:) :: tag,proc
 	  real(psn) :: pos
 	  type(ngbr_list) :: list
 	  integer :: m,n,k
@@ -129,8 +133,15 @@ contains
 	  list%ngbr(k)%p(n)%v=v(m)
 	  list%ngbr(k)%p(n)%w=w(m)
 	  list%ngbr(k)%p(n)%flv=flv(m) 
-	  list%ngbr(k)%p(n)%tag=tag(m) 
 	  list%ngbr(k)%p(n)%var1=var1(m)
+	  
+	  list%ngbr(k)%p(n)%tag=tag(m)
+	  list%ngbr(k)%p(n)%proc=proc(m)
+
+	  list%ngbr(k)%p(n)%qm=qm(m)
+	  list%ngbr(k)%p(n)%wt=wt(m)
+
+
 	end subroutine CopyTransferPrtl
 	
 	subroutine SendPrtlNgbrInd(size,edges,pos,k)
@@ -160,9 +171,13 @@ contains
 		u(ind)=0
 		v(ind)=0
 		w(ind)=0
-		x(ind)=xmin
-		y(ind)=ymin
-		z(ind)=zmin
+		x(ind)=3.8_psn
+		y(ind)=3.8_psn
+#ifndef twoD 		
+		z(ind)=3.8_psn
+#else
+        z(ind)=1.5_psn
+#endif
 	end subroutine RemovePrtl
 	
 	 subroutine check_comm_prtl_size(list)
@@ -194,8 +209,14 @@ contains
 			 p_temp(n)%v = p(n)%v
 			 p_temp(n)%w = p(n)%w
 			 p_temp(n)%flv = p(n)%flv
-			 p_temp(n)%tag = p(n)%tag
 			 p_temp(n)%var1 = p(n)%var1
+			 
+			 p_temp(n)%tag = p(n)%tag
+			 p_temp(n)%proc = p(n)%proc
+
+			 p_temp(n)%qm = p(n)%qm
+			 p_temp(n)%wt = p(n)%wt
+
 		 end do 	 
 		 call move_alloc(p_temp,p)
 	 end subroutine ResizeCommPrtl

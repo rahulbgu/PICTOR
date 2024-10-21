@@ -9,7 +9,7 @@ module help_setup
 	 use current
 	 use prtl_tag
      implicit none 
-
+	 
 contains 
 	
 !---------------------------------------------------------------------------------
@@ -36,9 +36,12 @@ contains
 	end subroutine SetGridOrigin
 !---------------------------------------------------------------------------------
 !  subroutines to initialise particles 
+!  If PSP_IDS is passed to InitPrtl, then only Density, Placement, and MaxDispalcement are other valid arguments
+!  If PSP_IDS is not passed, InitPrtl should be called with set properties for Flvr1 and Flvr2 explicitly		
 !---------------------------------------------------------------------------------		
    
-	subroutine InitPrtl(Flvr1,Flvr2,Density,Temperature1,Temperature2,DriftVelocity1,DriftVelocity2,SpeedDist1,SpeedDist2,Vmax1,Vmax2,Placement, MaxDisplacement, Multiplicity1, Multiplicity2)
+	subroutine InitPrtl(PSP_IDS, Flvr1,Flvr2,Density,Temperature1,Temperature2,DriftVelocity1,DriftVelocity2,SpeedDist1,SpeedDist2,Vmax1,Vmax2,Placement, MaxDisplacement, Multiplicity1, Multiplicity2)
+		integer, dimension(:), optional :: PSP_IDS ! ids of the phase space properties (returned by DefinePhaseSpaceProperty) set earlier
 		integer, optional :: Flvr1
 		integer, optional :: Flvr2
 		procedure(scalar_global) :: Density
@@ -59,17 +62,23 @@ contains
 		real(psn) :: MaxDisplacementThis 
 		real(dbpsn) :: x1,x2,y1,y2,z1,z2 
 		
+		if(present(PSP_IDS)) then 
+			allocate(pid(size(PSP_IDS)))
+			pid = PSP_IDS
+		else 
+
+			i1 = DefinePhaseSpaceProperty(Flvr1,Density,Temperature1,SpeedDist1,Vmax1,DriftVelocity1,Multiplicity1)
+			allocate(pid(1))
+			pid = (/ i1 /)
+			
+			if(present(Flvr2)) then
+				i2 = DefinePhaseSpaceProperty(Flvr2,Density,Temperature2,SpeedDist2,Vmax2,DriftVelocity2,Multiplicity2)
+				deallocate(pid)
+				allocate(pid(2))
+				pid = (/ i1, i2 /)
+			end if 
 		
-		call DefinePhaseSpaceProperty(Flvr1,Density,Temperature1,SpeedDist1,Vmax1,DriftVelocity1,Multiplicity1,i1)
-		allocate(pid(1))
-		pid = (/ i1 /)
-		
-		if(present(Flvr2)) then
-			call DefinePhaseSpaceProperty(Flvr2,Density,Temperature2,SpeedDist2,Vmax2,DriftVelocity2,Multiplicity2,i2)
-			deallocate(pid)
-			allocate(pid(2))
-			pid = (/ i1, i2 /)
-		end if 
+		endif 
 		
 		x1 = max(real(xborders(procxind),dbpsn), bc_face(1)%pos_prtl) 
 		x2 = min(real(xborders(procxind+1),dbpsn), bc_face(2)%pos_prtl ) 
@@ -94,12 +103,13 @@ contains
 		end if
 			
 	end subroutine InitPrtl
+
 	
 !---------------------------------------------------------------------------------
 !  Define a new Phase Space Property
 !  pid (INTEGER) = handle/pointer to this definition
 !---------------------------------------------------------------------------------			
-	subroutine DefinePhaseSpaceProperty(Flvr,Density,Temperature,SpeedDist,Vmax,DriftVelocity,Multiplicity,pid)
+	integer function DefinePhaseSpaceProperty(Flvr,Density,Temperature,SpeedDist,Vmax,DriftVelocity,Multiplicity, Fraction)
 		integer :: Flvr
 		procedure(scalar_global), optional :: Density
 		procedure(scalar_global), optional :: Temperature
@@ -107,15 +117,26 @@ contains
 		procedure(vector_global), optional :: DriftVelocity  
 		integer,                  optional :: Multiplicity
 		real(psn), optional :: Vmax !the maximum particle speed in the plasma frame, default is c 
+		real(psn), optional :: Fraction ! normalized number fraction associated with this distribution (default is 1.0)
 		integer :: pid
 		
 		used_PSP_list_size = used_PSP_list_size +1
 		pid = used_PSP_list_size
 		
-		call SetPhaseSpaceProperty(PSP_list(pid),Flvr,Density,Temperature,SpeedDist,Vmax,DriftVelocity,Multiplicity)
+		call SetPhaseSpaceProperty(PSP_list(pid),Flvr,Density,Temperature,SpeedDist,Vmax,DriftVelocity,Multiplicity, Fraction)
+
+		DefinePhaseSpaceProperty = pid
 		
-	end subroutine DefinePhaseSpaceProperty 
-	
+	end function DefinePhaseSpaceProperty 
+
+!---------------------------------------------------------------------------------
+!  "psave_gmin" : The particle data is saved only for the particles whose Lorentz factor >= psave_gmin
+!---------------------------------------------------------------------------------
+	subroutine SetSaveAllPrtlGammaMin(gmin)
+		real(psn) :: gmin
+		psave_all_gmin = gmin
+	end subroutine SetSaveAllPrtlGammaMin	
+
 !---------------------------------------------------------------------------------
 !  "psave_lims" : The particle data is saved only for the particles that are within the following limits 
 !---------------------------------------------------------------------------------	
@@ -186,21 +207,21 @@ contains
 #endif 
         do j=1,my 
 		    do i=1,mx
-				x= i -3.0_dbpsn + xborders(procxind)
-				y= j -3.0_dbpsn + yborders(procyind)
+				x= (i -3.0_dbpsn + xborders(procxind))*grid_dx
+				y= (j -3.0_dbpsn + yborders(procyind))*grid_dy
 #ifdef twoD    
                 z=0.0_dbpsn
 #else				 				
-				z= k - 3.0_dbpsn + zborders(proczind)
+				z= (k - 3.0_dbpsn + zborders(proczind))*grid_dz
 #endif 				
-			    call Efld(x + 0.5_dbpsn,y,z,e_x,e_y,e_z)
+			    call Efld(x + 0.5_dbpsn*grid_dx,y,z,e_x,e_y,e_z)
 				Ex(i,j,k)=e_x
-			    call Efld(x,y + 0.5_dbpsn,z,e_x,e_y,e_z)
+			    call Efld(x,y + 0.5_dbpsn*grid_dy,z,e_x,e_y,e_z)
 				Ey(i,j,k)=e_y
 #ifdef twoD				
 				call Efld(x,y,0.0_dbpsn,e_x,e_y,e_z)
 #else				
-				call Efld(x,y,z + 0.5_dbpsn,e_x,e_y,e_z)
+				call Efld(x,y,z + 0.5_dbpsn*grid_dz,e_x,e_y,e_z)
 #endif				
 			
 				Ez(i,j,k)=e_z
@@ -222,27 +243,27 @@ contains
 #endif 
         do j=1,my 
 		    do i=1,mx
-				x= i -3.0_dbpsn + xborders(procxind)
-				y= j -3.0_dbpsn + yborders(procyind)
+				x= (i -3.0_dbpsn + xborders(procxind))*grid_dx
+				y= (j -3.0_dbpsn + yborders(procyind))*grid_dy
 #ifdef twoD    
                 z=0.0_dbpsn
 #else				 				
-				z= k -3.0_dbpsn + zborders(proczind)
+				z= (k -3.0_dbpsn + zborders(proczind))*grid_dz
 #endif 				
-			    call Bfld(x + 0.5_dbpsn,y,z,b_x,b_y,b_z)
-				call Vfld(x + 0.5_dbpsn,y,z,vx,vy,vz)
+			    call Bfld(x + 0.5_dbpsn*grid_dx,y,z,b_x,b_y,b_z)
+				call Vfld(x + 0.5_dbpsn*grid_dx,y,z,vx,vy,vz)
 				Ex(i,j,k) = vz * b_y - vy * b_z 
 				
-			    call Bfld(x,y + 0.5_dbpsn,z,b_x,b_y,b_z)
-				call Vfld(x,y + 0.5_dbpsn,z,vx,vy,vz)
+			    call Bfld(x,y + 0.5_dbpsn*grid_dy,z,b_x,b_y,b_z)
+				call Vfld(x,y + 0.5_dbpsn*grid_dy,z,vx,vy,vz)
 				Ey(i,j,k) = vx * b_z - vz * b_x
 				
 #ifdef twoD				
 				call Bfld(x,y,0.0_dbpsn,b_x,b_y,b_z)
 				call Vfld(x,y,0.0_dbpsn,vx,vy,vz)
 #else				
-				call Bfld(x,y,z + 0.5_dbpsn,b_x,b_y,b_z)
-				call Vfld(x,y,z + 0.5_dbpsn,vx,vy,vz)
+				call Bfld(x,y,z + 0.5_dbpsn*grid_dz,b_x,b_y,b_z)
+				call Vfld(x,y,z + 0.5_dbpsn*grid_dz,vx,vy,vz)
 #endif				
 			
 				Ez(i,j,k) = vy * b_x - vx * b_y
@@ -264,18 +285,18 @@ contains
 #endif 
         do j=1,my 
 		    do i=1,mx
-				x=i -3.0_dbpsn + xborders(procxind)
-				y=j -3.0_dbpsn + yborders(procyind)
+				x=(i -3.0_dbpsn + xborders(procxind))*grid_dx
+				y=(j -3.0_dbpsn + yborders(procyind))*grid_dy
 #ifdef twoD    
                 z=0.0_dbpsn
 #else				 				
-				z= k - 3.0_dbpsn + zborders(proczind)
+				z=(k - 3.0_dbpsn + zborders(proczind))*grid_dz
 #endif 				
-				call Bfld(x,y+0.5_dbpsn,z+0.5_dbpsn, b_x,b_y,b_z)
+				call Bfld(x,y+0.5_dbpsn*grid_dy,z+0.5_dbpsn*grid_dz, b_x,b_y,b_z)
 				Bx(i,j,k)=b_x
-			    call Bfld(x+0.5_dbpsn,y,z+0.5_dbpsn, b_x,b_y,b_z)
+			    call Bfld(x+0.5_dbpsn*grid_dx,y,z+0.5_dbpsn*grid_dz, b_x,b_y,b_z)
 				By(i,j,k)=b_y				
-				call Bfld(x+0.5_dbpsn,y+0.5_dbpsn,z,b_x,b_y,b_z)	
+				call Bfld(x+0.5_dbpsn*grid_dx,y+0.5_dbpsn*grid_dy,z,b_x,b_y,b_z)	
 				Bz(i,j,k)=b_z
 		    end do 
         end do  
@@ -308,7 +329,8 @@ contains
 			 FlvrSaveRatio(FlvID)=psave_ratio
 		 end if 
 		 CurrentTagID(FlvID)=0
-		 call ReallocatePrtlTagArr
+		 CurrentTagProcID(FlvID)=proc+1
+		 
 	 end subroutine DefineNewFlvr
 	 
 !------------------------------------------------------------
@@ -349,7 +371,7 @@ contains
 	subroutine cart2polar(x,y,r,theta)
 		real(dbpsn), intent(IN)    :: x,y
 		real(dbpsn), intent(INOUT) :: r,theta
-		r=max(x+rshift,0.0_dbpsn)
+		r=max(x+rshift*grid_dx,0.0_dbpsn)
 		theta = y*(6.283185307179586_dbpsn/ny)
 	end subroutine cart2polar
 

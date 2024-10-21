@@ -8,10 +8,18 @@ module subdomains
     use cyl_common
 #endif 	
 	implicit none
+
+	integer :: num_send_indep_borders = 0
+	type(MPI_Request) :: mpi_req_recv_indep_borders! = MPI_REQUEST_NULL
+	type(MPI_Request), dimension(:), allocatable :: mpi_req_send_indep_borders
+
 contains
 
 	subroutine InitDomainSkelton
 		integer :: n,m
+		 
+		 mpi_req_recv_indep_borders = MPI_REQUEST_NULL
+		 
 		 call InitProcGridPlane
 		 call DetermineProcGridCount
 		 call InitProcGrid
@@ -22,6 +30,7 @@ contains
 	 end subroutine InitDomainSkelton
 	 
 	 subroutine RestartDomainSkelton
+		 mpi_req_recv_indep_borders = MPI_REQUEST_NULL
 		 call SetNgbr
 		 call SetProcGridCommGroup
 	 end subroutine RestartDomainSkelton
@@ -219,17 +228,37 @@ contains
 	 
  	 subroutine SendIndepBordersTo(isend,jsend)
  		 integer :: isend, jsend !i,j indices of the column where mpi proc. will receive updated borders 
- 		 integer :: n,count, ksend
- 		 type(MPI_Request) :: mpi_req  
+ 		 integer :: n, count, ksend
 
  		 if(isend.eq.iproc.and.jsend.eq.jproc) return
 
- 		 count = ProcGrid(iproc,jproc)%count
- 		 ksend = kproc  
- 		 
+		 count = ProcGrid(iproc,jproc)%count
+		 
+		 !first count how many sends will be posted
+		 ksend = kproc  
+		 num_send_indep_borders = 0 
+		 do while ( ksend+1 .le. ProcGrid(isend,jsend)%count )
+			if(count.ge.0) num_send_indep_borders = num_send_indep_borders +1
+			ksend = ksend + ProcGrid(iproc,jproc)%count
+		 end do
+
+		 !allocate and initialise 'mpi_req' for sending the borders 
+		 if(allocated(mpi_req_send_indep_borders)) deallocate(mpi_req_send_indep_borders)
+		 allocate(mpi_req_send_indep_borders(num_send_indep_borders))
+		 do n=1,num_send_indep_borders
+			mpi_req_send_indep_borders(n) = MPI_REQUEST_NULL
+		 end do 
+		 
+		 
+		 !now send the borders
+		 ksend = kproc  
+		 n=0
 		 do while ( ksend+1 .le. ProcGrid(isend,jsend)%count )
  			 
-			 if(count.ge.0) call MPI_SEND(ProcGrid(iproc,jproc)%borders(0:count),count+1,MPI_INTEGER,ProcGrid(isend,jsend)%procs(ksend),1,MPI_COMM_WORLD)			 
+			 if(count.gt.0) then 
+				n=n+1
+				call MPI_ISEND(ProcGrid(iproc,jproc)%borders,count+1,MPI_INTEGER,ProcGrid(isend,jsend)%procs(ksend),1,MPI_COMM_WORLD, mpi_req_send_indep_borders(n))	
+			 end if 		 
  			 ksend = ksend + ProcGrid(iproc,jproc)%count
  		 
 		 end do 
@@ -239,17 +268,33 @@ contains
  	 subroutine RecvIndepBordersFrom(irecv,jrecv)
  		 integer :: irecv, jrecv !i,j indices of the column where mpi proc. will receive updated borders 
  		 integer :: n,count, comm_proc
- 	     type(MPI_Status) ::  mpi_stat 
 
  		 if(irecv.eq.iproc.and.jrecv.eq.jproc) return
 		 
  		 count = ProcGrid(irecv,jrecv)%count
- 		 comm_proc = ProcGrid(irecv,jrecv)%procs(mod(kproc,count))
- 		 if(allocated(ProcGrid(irecv,jrecv)%borders)) deallocate(ProcGrid(irecv,jrecv)%borders)
+		 if(allocated(ProcGrid(irecv,jrecv)%borders)) deallocate(ProcGrid(irecv,jrecv)%borders)
  		 allocate(ProcGrid(irecv,jrecv)%borders(0:count))
- 		 if(count.ge.0) call MPI_RECV(ProcGrid(irecv,jrecv)%borders(0:count),count+1,MPI_INTEGER,comm_proc,1,MPI_COMM_WORLD, mpi_stat)
+
+		 mpi_req_recv_indep_borders = MPI_REQUEST_NULL
+ 		 if(count.gt.0) then 
+			comm_proc = ProcGrid(irecv,jrecv)%procs(mod(kproc,count))
+			call MPI_IRECV(ProcGrid(irecv,jrecv)%borders,count+1,MPI_INTEGER,comm_proc,1,MPI_COMM_WORLD, mpi_req_recv_indep_borders)
+		 end if 
 	 
  	 end subroutine RecvIndepBordersFrom
+
+	 subroutine WaitSendRecvIndepBorders
+		integer :: n
+
+		!wait for all sends to complete
+		do n = 1, num_send_indep_borders
+			call MPI_WAIT(mpi_req_send_indep_borders(n),MPI_STATUS_IGNORE)
+		end do 
+
+		!wait for the recv to complete
+		call MPI_WAIT(mpi_req_recv_indep_borders,MPI_STATUS_IGNORE)
+	 
+	end subroutine WaitSendRecvIndepBorders
 	
 	 !---------------------------------------------------------------------------------------
 	 ! Fill in the list of ngbrs for comm.
@@ -305,10 +350,15 @@ contains
 		 
 		 i1 = intPrdcDomain(i0-1,isizeProcGrid); j1 =j0;
 		 i2 = intPrdcDomain(i0+1,isizeProcGrid); j2 =j0;	
-		 call SendIndepBordersTo(i1,j1)
-		 call SendIndepBordersTo(i2,j2)
-		 call RecvIndepBordersFrom(i1,j1)
-		 call RecvIndepBordersFrom(i2,j2)
+		 
+		 call SendIndepBordersTo(i1,j0)
+		 call RecvIndepBordersFrom(i2,j0)
+		 call WaitSendRecvIndepBorders	
+
+		 call SendIndepBordersTo(i2,j0)
+		 call RecvIndepBordersFrom(i1,j0)
+		 call WaitSendRecvIndepBorders	
+
 		 		 
 		 call MultipleNgbr(ProcGrid(i0,j0)%count, ProcGrid(i0,j0)%borders, ProcGrid(i1,j1)%count, ProcGrid(i1,j1)%borders, ProcGrid(i1,j1)%procs, ngbr_send(face(1)) )
 		 call MultipleNgbr(ProcGrid(i0,j0)%count, ProcGrid(i0,j0)%borders, ProcGrid(i1,j1)%count, ProcGrid(i1,j1)%borders, ProcGrid(i1,j1)%procs, ngbr_recv(face(1)) )
@@ -320,10 +370,14 @@ contains
 			 
 		 i1 = i0; j1 =intPrdcDomain(j0-1,jsizeProcGrid);
 		 i2 = i0; j2 =intPrdcDomain(j0+1,jsizeProcGrid);
-		 call SendIndepBordersTo(i1,j1)
-		 call SendIndepBordersTo(i2,j2)
-		 call RecvIndepBordersFrom(i1,j1)
-		 call RecvIndepBordersFrom(i2,j2)	
+
+		 call SendIndepBordersTo(i0,j1)
+		 call RecvIndepBordersFrom(i0,j2)
+		 call WaitSendRecvIndepBorders	
+
+		 call SendIndepBordersTo(i0,j2)
+		 call RecvIndepBordersFrom(i0,j1)
+		 call WaitSendRecvIndepBorders
 		 
 		 call MultipleNgbr(ProcGrid(i0,j0)%count, ProcGrid(i0,j0)%borders, ProcGrid(i1,j1)%count, ProcGrid(i1,j1)%borders, ProcGrid(i1,j1)%procs, ngbr_send(face(3)) )
 		 call MultipleNgbr(ProcGrid(i0,j0)%count, ProcGrid(i0,j0)%borders, ProcGrid(i1,j1)%count, ProcGrid(i1,j1)%borders, ProcGrid(i1,j1)%procs, ngbr_recv(face(3)) )
@@ -347,9 +401,12 @@ contains
 		 type(ngbr_list) :: list
 		 integer :: n , p1, p2, num_ngbrs, m
 		 
-		 num_ngbrs = count_ngbrs(size_ngbr,borders_ngbr,borders(kproc),borders(kproc+1))
-		 
+		 num_ngbrs = 0
+		 if(kproc+1.le.size) num_ngbrs = count_ngbrs(size_ngbr,borders_ngbr,borders(kproc),borders(kproc+1))
+
 		 call allocate_ngbr_list(list, num_ngbrs)
+
+		 if(num_ngbrs.eq.0) return
 
 		 m=1
 		 do n=0,size_ngbr-1
@@ -539,8 +596,9 @@ contains
 			 if(mod(n,2).eq.0) then 
 				  off = -5; nlayers = 2; 
 			 end if 
-			 call SetCommFldDomain(ngbr_send(n)%ngbr,ngbr_send(n)%edges, n, off, nlayers, tag_offset)				 		 
-		 end do
+			 call SetCommFldDomain(ngbr_send(n)%ngbr,ngbr_send(n)%edges, n, off, nlayers, tag_offset)
+			 if(proc.eq.1) print*,'edges', ngbr_send(n)%edges, off	
+		 end do 
 		 call AllocCommFld(ngbr_send)  
 		 
 		 do n=1,size(ngbr_recv)
@@ -570,7 +628,8 @@ contains
 			 call set_layers( face2axis(face), off, nlayers, ngbr(n)%ind)
 			 
 			 ngbr(n)%mpi_tag_offset = tag_offset
-		 
+			 if(proc.eq.1) print*,n,'ind are',ngbr(n)%ind
+
 		 end do
 		 
 		 if(face2axis(face).eq.indepLBaxis) return ! no mutiple neighbors
@@ -593,6 +652,8 @@ contains
 			  
 			 ngbr(n)%ind (1+2*indepLBaxis) = e1 
 			 ngbr(n)%ind (2+2*indepLBaxis) = e2
+			 if(proc.eq.1) print*,n,'ind are',ngbr(n)%ind
+
 		 end do 		 
 		 
 	 end subroutine SetCommFldDomain
@@ -604,17 +665,18 @@ contains
 	 subroutine set_layers(axis, off, nlayers, ind)
 		 integer :: axis, off, nlayers
 		 integer, dimension(6) :: ind
-		 integer :: l1,l2
+		 integer :: l1,l2, off1
 		 
 		 l1 = 1 + 2*axis
 		 l2 = 2 + 2*axis
 		 
-		 if(axis.eq.0 .and. off.lt.0) off = off+mx
-		 if(axis.eq.1 .and. off.lt.0) off = off+my
-		 if(axis.eq.2 .and. off.lt.0) off = off+mz
+		 off1 = off
+		 if(axis.eq.0 .and. off.lt.0) off1 = off+mx
+		 if(axis.eq.1 .and. off.lt.0) off1 = off+my
+		 if(axis.eq.2 .and. off.lt.0) off1 = off+mz
 		 
-		 ind(l1) = off + 1
-		 ind(l2) = off + 1 + (nlayers-1)		 	  
+		 ind(l1) = off1 + 1
+		 ind(l2) = off1 + 1 + (nlayers-1)		 	  
 	 end subroutine set_layers
 	 
 	 
@@ -708,7 +770,7 @@ contains
 	
 	subroutine FreeProcGridCommGroup
 		call MPI_comm_free(comm_indepLBaxis)
-		if(kproc.eq.0) call MPI_comm_free(comm_kproc0)
+		if(comm_kproc0.ne.MPI_COMM_NULL) call MPI_comm_free(comm_kproc0)
 	end subroutine FreeProcGridCommGroup
 		 
 end module subdomains

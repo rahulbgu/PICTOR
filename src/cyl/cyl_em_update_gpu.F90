@@ -171,8 +171,6 @@ contains
 		 integer  :: ioff
 		 real(psn):: rmin
 		 
-		 if(RZtwoD) call CurrentAveragingAlongTheta  
-		 
 		 ioff=3
 		 if(procxind.eq.0) ioff=4
 		 rmin=rborders(procxind)
@@ -300,43 +298,6 @@ contains
 	    end if 
     end subroutine UpdateByAxis_GPU 
 	
-	!---------------------------------------------------------------------
-	! The current is average along the azimuthal direction
-	! This rudimentry version works only when nSubSomainsY=1
-	!---------------------------------------------------------------------
-	subroutine CurrentAveragingAlongTheta  
-		Jx=Jx_gpu
-		Jy=Jy_gpu
-		Jz=Jz_gpu
-		call AverageAlongTheta(Jx)
-		call AverageAlongTheta(Jy)
-		call AverageAlongTheta(Jz)
-		Jx_gpu=Jx
-		Jy_gpu=Jy
-		Jz_gpu=Jz
-	end subroutine CurrentAveragingAlongTheta  
-	
-	subroutine AverageAlongTheta(Fld)
-		real(psn), dimension(mx,my,mz) :: Fld
-		real(psn) :: sum
-		integer :: i,j,k
-		
-		do k=1,mz
-			do i=1,mx
-				sum=0
-				do j=3,my-3
-					sum=sum+Fld(i,j,k) 
-				end do 
-				sum=sum/ny
-				do j=1,my
-					Fld(i,j,k)=sum
-				end do
-		    end do 
-		end do 
-		
-	end subroutine AverageAlongTheta
-	
-
 !--------------------------------------------------------------
 ! Update B_z at the axis
 !--------------------------------------------------------------	

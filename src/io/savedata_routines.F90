@@ -14,13 +14,22 @@ module savedata_routines
      
 contains
      
-     subroutine GetSizeofSavePrtl
+     subroutine GetSizeofSavePrtl(save_flag)
           integer :: i
+          integer, dimension(:) :: save_flag
+          real(psn) :: gamma
           
-		  nprtl_save_this=0
+		nprtl_save_this=0
           
-		  do i=1,used_prtl_arr_size
-               if(flvp(i).ne.0 .and. tagp(i).ne.0 .and. within_lims(xp(i),yp(i),zp(i))) nprtl_save_this=nprtl_save_this+1
+		do i=1,used_prtl_arr_size
+               save_flag(i) = 0 !default, don't save this particle
+               if(flvp(i).ne.0 .and. within_lims(xp(i),yp(i),zp(i))) then 
+                    gamma = sqrt(1.0_psn + up(i)**2 + vp(i)**2 + wp(i)**2)
+                    if ( tagp(i).gt.0 .or. gamma.gt.psave_all_gmin) then
+                         save_flag(i) = 1
+                         nprtl_save_this=nprtl_save_this+1
+                    end if 
+               end if 
           end do
 		  
           !print*,'nprtl_save_this is',nprtl_save_this
@@ -46,26 +55,40 @@ contains
 	 !-------------------------------------------------------------------------------------
 	 ! Extract particle attributes to be saved
 	 !-------------------------------------------------------------------------------------
-	 subroutine GatherSavePrtl(size,q,x,y,z,u,v,w,var1,tag,flv)
+	 subroutine GatherSavePrtl(size,save_flag,q,x,y,z,u,v,w,var1,flv,tag,proc,qm,wt)
 		 integer :: size
+           integer, dimension(:) :: save_flag
 		 real, dimension(size) :: x,y,z,u,v,w,q,var1
-		 integer, dimension(size) :: tag,flv
+		 integer, dimension(size) :: flv
+           integer, dimension(size) :: tag,proc
+           real, dimension(size)    :: qm, wt
+
+           real(psn) :: gamma
 		 integer :: i, j 
 		 
 		 j=1
 		 do i = 1, used_prtl_arr_size
-			  if(flvp(i).ne.0 .and. tagp(i).ne.0 .and. within_lims(xp(i),yp(i),zp(i))) then 
-				  q(j) = real(qp(i))
-				  x(j) = real(xp(i)) 
-				  y(j) = real(yp(i))
-				  z(j) = real(zp(i)) 
-				  u(j) = real(up(i))
-				  v(j) = real(vp(i))
-			      w(j) = real(wp(i))
-				  tag(j) = tagp(i)
-				  flv(j) = flvp(i)
-				  j=j+1
-			  end if
+               if( save_flag(i).eq.1 ) then 
+
+                    q(j) = real(qp(i))
+                    x(j) = real(xp(i)) 
+                    y(j) = real(yp(i))
+                    z(j) = real(zp(i)) 
+                    u(j) = real(up(i))
+                    v(j) = real(vp(i))
+                    w(j) = real(wp(i))
+                    var1(j) = real(var1p(i))
+                    flv(j) = flvp(i)
+
+                    tag(j)  = tagp(i)
+                    proc(j) = procp(i)
+
+                    qm(j) = real(qmp(i))
+                    wt(j) = real(wtp(i))
+
+
+                    j=j+1
+               end if 
 		 end do 
 	 end subroutine GatherSavePrtl
 	 
@@ -174,10 +197,9 @@ contains
 	 
 	 logical function within_lims(x,y,z)
 	 	  real(psn), intent(in) :: x,y,z
-		  within_lims = .false.
-		  within_lims = (x.gt.psave_lims_local(1).and.x.lt.psave_lims_local(2)) & 
+		  within_lims = (      x.gt.psave_lims_local(1).and.x.lt.psave_lims_local(2)) & 
 		                .and. (y.gt.psave_lims_local(3).and.y.lt.psave_lims_local(4)) & 
-						.and. (z.gt.psave_lims_local(5).and.z.lt.psave_lims_local(6))
+					 .and. (z.gt.psave_lims_local(5).and.z.lt.psave_lims_local(6))
  	 end function within_lims 
 	 
 	 
@@ -240,7 +262,7 @@ contains
 	
 
 
-     subroutine CalcEnergy(energy_this) !Calcualtes the total energy in EM field and particles
+     subroutine CalcEnergy(energy_this) !Calculates the total energy in EM field and particles
           real(dbpsn), dimension(Nflvr+2) :: energy_this
           real(dbpsn) :: Bfld_energy,Efld_energy 
           
@@ -271,11 +293,17 @@ contains
 ! #endif	 
          do n=1,used_prtl_arr_size
               gamma=sqrt(1.0_psn+up(n)**2+vp(n)**2+wp(n)**2)
-			  !Note : the following two estimates are not applicable in the case of active "ionization", 
-			  !since q can't be used to esitamte mass from q/m, and particle's weighting factor should also be accounted for
+			 !Note : the following two estimates are not applicable in the case of active "ionization", 
+			 !since q can't be used to esitamte mass from q/m, and particle's weighting factor should also be accounted for
 		      !which is not represented by "q" alone
-              if(qp(n).gt.0)  energy(flvp(n))=energy(flvp(n))+(gamma-1.0_psn)*abs(qp(n))*(qmi/flvrqm(flvp(n)))*mic2
-              if(qp(n).lt.0)  energy(flvp(n))=energy(flvp(n))+(gamma-1.0_psn)*abs(qp(n))*(qme/flvrqm(flvp(n)))*mec2
+              if(qp(n).gt.0)  then
+                    if(flvr_prpt(flvp(n))%Z_nucleus .gt.0 ) then
+                         energy(flvp(n))=energy(flvp(n))+(gamma-1.0_psn)*abs(wtp(n))*( flvr_prpt(flvp(n))%Z_nucleus*qi / flvrqm(flvp(n)) )*c*c
+                    else
+                         energy(flvp(n))=energy(flvp(n))+(gamma-1.0_psn)*abs(wtp(n))*(qp(n)*qi/flvrqm(flvp(n)) )*c*c 
+                    end if 
+              end if 
+              if(qp(n).lt.0)  energy(flvp(n))=energy(flvp(n))+(gamma-1.0_psn)*abs(wtp(n))*mec2
          end do
 	 end subroutine CalcPrtlEnergy
 	 
@@ -342,18 +370,24 @@ contains
                     invg=1.0_psn/sqrt(1.0_psn+up(n)**2+vp(n)**2+wp(n)**2)
 					select case (qnty_id)
 						case(1) ! charge flux
-							qnty_x = up(n)*invg*qp(n); qnty_y = vp(n)*invg*qp(n); qnty_z = wp(n)*invg*qp(n); 
+							qnty_x = up(n)*invg*wtp(n)
+                                   qnty_y = vp(n)*invg*wtp(n) 
+                                   qnty_z = wp(n)*invg*wtp(n) 
 						case(2)	! velocity^2
-	                        qnty_x=qp(n)*(up(n)*invg)**2; qnty_y=qp(n)*(vp(n)*invg)**2; qnty_z=qp(n)*(wp(n)*invg)**2;
+	                              qnty_x=wtp(n)*(up(n)*invg)**2
+                                   qnty_y=wtp(n)*(vp(n)*invg)**2 
+                                   qnty_z=wtp(n)*(wp(n)*invg)**2
 						case(3) ! E.V
 						    call InterpEMfield(xp(n),yp(n),zp(n),pEx,pEy,pEz,pBx,pBy,pBz,Ex,Ey,Ez,Bx,By,Bz)
-	                        qnty_x=qp(n)*up(n)*invg*pEx; qnty_y=qp(n)*vp(n)*invg*pEy; qnty_z=qp(n)*wp(n)*invg*pEz;
+	                             qnty_x=wtp(n)*up(n)*invg*pEx 
+                                  qnty_y=wtp(n)*vp(n)*invg*pEy 
+                                  qnty_z=wtp(n)*wp(n)*invg*pEz
 							
 					end select
 
 					
 					call AddToGrid(Fx,i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp,qnty_x)
-                    call AddToGrid(Fy,i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp,qnty_y)
+                         call AddToGrid(Fy,i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp,qnty_y)
 					call AddToGrid(Fz,i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp,qnty_z)
 
                end if
@@ -362,27 +396,30 @@ contains
      end subroutine CalcPrtlFlux
 	 
      subroutine CalcPrtlDen(ch, qnty_id, Fx)
-		  integer :: qnty_id 
+		integer :: qnty_id 
           real(psn), dimension(mx,my,mz) :: Fx
-		  integer :: n,i,j,k,ch,ip,jp,kp
+		integer :: n,i,j,k,ch,ip,jp,kp
           real(psn) :: Wx,Wy,Wz,Wxp,Wyp,Wzp
           real(psn) :: qnty
-		  real(psn) :: mc2
+		real(psn) :: c2, mass
 
           Fx=0.0_psn;
 
-		  mc2 = 0 
-		  if(FlvrCharge(ch).gt.0) mc2 = (qmi/flvrqm(ch))*massi*c*c
-		  if(FlvrCharge(ch).lt.0) mc2 = (qme/flvrqm(ch))*masse*c*c
+		c2 = c*c 
 		  
           do n=1,used_prtl_arr_size
                if(flvp(n).eq.ch) then
                     call DownsampleGridIndex(xp(n),yp(n),zp(n),i,j,k,ip,jp,kp,Wx,Wy,Wz,Wxp,Wyp,Wzp)
 					select case (qnty_id)
-						case(1) ! charge density
-							qnty = qp(n)
+						case(1) ! number density
+							qnty = wtp(n)
 						case(2)	! energy density
-	                        qnty = (sqrt(1.0_psn+up(n)**2+vp(n)**2+wp(n)**2)-1.0_psn)*qp(n)*mc2
+                                   if (flvr_prpt(flvp(n))%Z_nucleus .gt.0) then
+                                        mass = flvr_prpt(flvp(n))%Z_nucleus*qi / flvrqm(flvp(n))
+                                   else
+                                        mass = qp(n)*qi/flvrqm(flvp(n))
+                                   endif 
+	                              qnty = (sqrt(1.0_psn+up(n)**2+vp(n)**2+wp(n)**2)-1.0_psn)*wtp(n)*mass*c2
 							
 					end select
 

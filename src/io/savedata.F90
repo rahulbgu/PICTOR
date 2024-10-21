@@ -23,14 +23,14 @@ contains
      subroutine SaveOutputCollective !all data are written in parallel by all proc
 
            if((prtl_save_period.gt.0).and.(modulo(t,prtl_save_period).eq.0)) then 
-			   call save_particles( psave_lims ) 
-		   end if 
+			call save_particles( psave_lims ) 
+		 end if 
 		   
            if((fld_save_period.gt.0).and.(modulo(t,fld_save_period).eq.0)) then !default: saves fld data over entire box
                 call save_field_collective(box_bounds(1),box_bounds(2),box_bounds(3),box_bounds(4),box_bounds(5),box_bounds(6),fsave_ratio,'')
            end if
            
-		   if((spec_save_period.gt.0).and.(modulo(t,spec_save_period).eq.0)) call save_spec (spec_lims,'')
+		 if((spec_save_period.gt.0).and.(modulo(t,spec_save_period).eq.0)) call save_spec (spec_lims,'')
 
            if((spec_save_period.gt.0).and.(modulo(t,spec_save_period).eq.0)) call save_total_energy ! to save energy data
            if((prtl_mean_save_period.gt.0).and.(modulo(t,prtl_mean_save_period).eq.0)) call save_prtl_mean ! mean of prtl related qunatities
@@ -42,13 +42,15 @@ contains
 		integer :: err
 		if(.not.restart) call CreateDataFolder
 		call h5open_f(err)
-        select case(psn)
-        case(kind(1.0d0))
-           call h5tcopy_f(H5T_NATIVE_DOUBLE,h5real_psn,err)
-        case(kind(1.0e0))
-           call h5tcopy_f(H5T_NATIVE_REAL,h5real_psn,err)
-        end select
-		call h5close_f(err)
+          
+          select case(psn)
+          case(kind(1.0d0))
+             call h5tcopy_f(H5T_NATIVE_DOUBLE,h5real_psn,err)
+          case(kind(1.0e0))
+             call h5tcopy_f(H5T_NATIVE_REAL,h5real_psn,err)
+          end select
+		
+          call h5close_f(err)
 		
 		call SetSaveLimitsFullDomain(psave_lims)
 		call SetSaveLimitsFullDomain(spec_lims)
@@ -69,39 +71,73 @@ contains
           end if
      end subroutine CreateDataFolder
      subroutine SaveRestartData
-		 integer :: stat
-          if((restart_save_period.gt.0).and.(modulo(t,restart_save_period).eq.0)) then
+		 integer     :: stat
+           integer     :: save_now, exit_now
+           real(dbpsn) :: time_since_start 
+
+           save_now = 0
+           exit_now = 0
+           
+           if(saveAndExitAfterHours.gt.0) then 
+               !to avoid frequent global communication, check should not occur in every time step 
+               !currently "fld_save_period" is selected to check periodically the condition to save and exit
+               if((fld_save_period.gt.0).and.(modulo(t,fld_save_period).eq.0)) then
+                    if(proc.eq.0) then
+                         !save the restart data only once right at the end
+                         time_since_start = (get_current_time() - exec_time(1))/3600.0_dbpsn ! in hours
+                         if(time_since_start.gt.saveAndExitAfterHours) then
+                              save_now = 1
+                              exit_now = 1
+                         end if
+                    end if
+                    call MPI_Bcast( save_now,1, MPI_INTEGER, 0, MPI_COMM_WORLD)
+                    call MPI_Bcast( exit_now,1, MPI_INTEGER, 0, MPI_COMM_WORLD)
+               end if 
+           else 
+               !save the restart data periodically
+               if((restart_save_period.gt.0).and.(modulo(t,restart_save_period).eq.0)) then
+                    save_now =1
+               end if
+          end if
+          
+          if(save_now .eq. 1) then
                call h5open_f(err)
                if(proc.eq.0) print*,'Saving the current state of the simulation ...'
                call StartTimer(41)
                call save_fields_restart
                call save_particles_restart
                call save_param_restart
-			   call save_restart_time
+               call save_restart_time
                call h5close_f(err)
-			   
-			   call MPI_Barrier(MPI_COMM_WORLD, ierr) 
+               
+               call MPI_Barrier(MPI_COMM_WORLD, ierr) 
                
                !now delete older restart files, if present
-        
-                write(str1,'(I0)') t-restart_save_period
-                write(str2,'(I0)') proc
+     
+               write(str1,'(I0)') t-restart_save_period
+               write(str2,'(I0)') proc
 
-				fname=trim(data_folder)//"/restart"//"/fld_"//trim(str2)//"_"//trim(str1)
-				open(unit=1234, iostat=stat, file=fname, status='old')
-				if(stat.eq.0) close(1234, status='delete')
+               fname=trim(data_folder)//"/restart"//"/fld_"//trim(str2)//"_"//trim(str1)
+               open(unit=1234, iostat=stat, file=fname, status='old')
+               if(stat.eq.0) close(1234, status='delete')
 
-			    fname=trim(data_folder)//"/restart"//"/prtl_"//trim(str2)//"_"//trim(str1)
-				open(unit=1234, iostat=stat, file=fname, status='old')
-				if(stat.eq.0) close(1234, status='delete')
-				
-			    fname=trim(data_folder)//"/restart"//"/param_"//trim(str2)//"_"//trim(str1)
-				open(unit=1234, iostat=stat, file=fname, status='old')
-				if(stat.eq.0) close(1234, status='delete')
-				
+               fname=trim(data_folder)//"/restart"//"/prtl_"//trim(str2)//"_"//trim(str1)
+               open(unit=1234, iostat=stat, file=fname, status='old')
+               if(stat.eq.0) close(1234, status='delete')
+                    
+               fname=trim(data_folder)//"/restart"//"/param_"//trim(str2)//"_"//trim(str1)
+               open(unit=1234, iostat=stat, file=fname, status='old')
+               if(stat.eq.0) close(1234, status='delete')
+                    
                call StopTimer(41)
                if(proc.eq.0) print*, 'Restart data saved at Time Step = ',t,'. Data write time: ',real(exec_time(41)),' sec'
-          end if
+          end if 
+
+          if( exit_now .eq. 1) then
+               if(proc.eq.0) print*,'Exiting . Allocated execution time is exhausted.'
+               call MPI_Barrier(MPI_COMM_WORLD, ierr)  
+               call Abort(10)
+          end if 
      end subroutine SaveRestartData
 
 !===================================================================================================
@@ -117,7 +153,7 @@ contains
 		lims(5) = real(-huge(1),dbpsn)
 		lims(6) = real(huge(1),dbpsn)
 #ifdef twoD
-        lims(5) = -1.0_dbpsn 
+          lims(5) = -1.0_dbpsn 
 		lims(6) = 2.0_dbpsn
 #endif	
 	end subroutine SetSaveLimitsFullDomain 
@@ -130,15 +166,18 @@ contains
           real(dbpsn), dimension(6) :: save_lims
           INTEGER(HSIZE_T), dimension(1) :: dmemspace_this
           real, dimension(:), allocatable :: x,y,z,u,v,w,q,var1
-		  real, dimension(:), allocatable :: pFx,pFy,pFz 
-		  real(psn), dimension(:,:), allocatable  :: vecJx_this, vecJy_this, vecJz_this
-		  integer, dimension(:), allocatable :: tag, flv
-		  integer:: i
+		real, dimension(:), allocatable :: pFx,pFy,pFz 
+		real(psn), dimension(:,:), allocatable  :: vecJx_this, vecJy_this, vecJz_this
+		integer, dimension(:), allocatable :: flv, tag, proc_id
+          real, dimension(:), allocatable :: qm, wt
+          integer, dimension(:), allocatable :: save_flag ! flag particles (flag =1) that are to be saved 
+		integer:: i
 		  
           
-		  call SetSaveLimsLocal(psave_lims_local,save_lims)
+		call SetSaveLimsLocal(psave_lims_local,save_lims)
 		  
-          call h5open_f(err) !should be deleted
+          call h5open_f(err) 
+
           write(fname,'(I0)') t
           fname=trim(data_folder)//"/prtl_"//trim(fname)
 
@@ -146,12 +185,14 @@ contains
           call CopyTaggedPrtlFromGPU
 #endif
           
-          call h5open_f(err)
 		  
-		  if(.not.allocated(prtl_arr_size_all)) allocate(prtl_arr_size_all(nproc))
+		if( .not. allocated(prtl_arr_size_all)) allocate(prtl_arr_size_all(nproc))
           prtl_arr_size_all=0
+
+          allocate(save_flag(used_prtl_arr_size))
+
 #ifdef CPU	  
-          call GetSizeofSavePrtl
+          call GetSizeofSavePrtl(save_flag)
 #endif		  
 ! #ifdef gpu
 !           call CalcPrtlGPU
@@ -159,18 +200,22 @@ contains
           
           prtl_arr_size_all(proc+1)=nprtl_save_this
           
-		  call MPI_ALLGATHER(nprtl_save_this,1,MPI_INTEGER,prtl_arr_size_all,1,MPI_INTEGER,MPI_COMM_WORLD)
+		call MPI_ALLGATHER(nprtl_save_this,1,MPI_INTEGER,prtl_arr_size_all,1,MPI_INTEGER,MPI_COMM_WORLD)
           
-		  rank=1
+		rank=1
           offset1(1)=0
           data_dim1(1)=0
           do i=1,nproc
                if(i.lt.proc+1) offset1(1)=offset1(1)+prtl_arr_size_all(i)
                data_dim1(1)=data_dim1(1)+prtl_arr_size_all(i)
           end do
-		  if(data_dim1(1).eq.0) return
+		if(data_dim1(1).eq.0) return
 		  
-		  allocate(q(nprtl_save_this),x(nprtl_save_this),y(nprtl_save_this),z(nprtl_save_this),u(nprtl_save_this),v(nprtl_save_this),w(nprtl_save_this),var1(nprtl_save_this),tag(nprtl_save_this),flv(nprtl_save_this))
+		allocate(q(nprtl_save_this),x(nprtl_save_this),y(nprtl_save_this),z(nprtl_save_this),u(nprtl_save_this),v(nprtl_save_this),w(nprtl_save_this),var1(nprtl_save_this),flv(nprtl_save_this))
+          allocate(tag(nprtl_save_this),proc_id(nprtl_save_this))
+          allocate(qm(nprtl_save_this),wt(nprtl_save_this))
+
+            
 		  
           dmemspace_this(1)=prtl_arr_size_all(proc+1)
           call h5pcreate_f(H5P_FILE_ACCESS_F, plist, err)
@@ -182,7 +227,7 @@ contains
           call h5screate_simple_f(rank, data_dim1, dspace_id, err)
 
 		  !extract complete attributes of the tagged particles in x,y,... arrays 
-		  call GatherSavePrtl(nprtl_save_this,q,x,y,z,u,v,w,var1,tag,flv) 
+		  call GatherSavePrtl(nprtl_save_this,save_flag,q,x,y,z,u,v,w,var1,flv,tag,proc_id,qm,wt) 
           
 		  call save_particles_real_arr_collective(nprtl_save_this,q,'q')
 		  
@@ -200,15 +245,23 @@ contains
 #endif		  
 
           
-		  call save_particles_real_arr_collective(nprtl_save_this,u,'u')
+		call save_particles_real_arr_collective(nprtl_save_this,u,'u')
           call save_particles_real_arr_collective(nprtl_save_this,v,'v')
           call save_particles_real_arr_collective(nprtl_save_this,w,'w')
           call save_particles_real_arr_collective(nprtl_save_this,var1,'var1') 
           call save_particles_int_arr_collective(nprtl_save_this,flv,'flv') 
+
           call save_particles_int_arr_collective(nprtl_save_this,tag,'tag') 
+          call save_particles_int_arr_collective(nprtl_save_this,proc_id,'proc') 
+
+          call save_particles_real_arr_collective(nprtl_save_this,qm,'qm') 
+          call save_particles_real_arr_collective(nprtl_save_this,wt,'wt') 
 		  
-		  deallocate(q,u,v,w,var1,flv,tag)
-		  allocate(pFx(nprtl_save_this), pFy(nprtl_save_this), pFz(nprtl_save_this))
+		deallocate(q,u,v,w,var1,flv)
+          deallocate(tag,proc_id)
+          deallocate(qm,wt)
+
+		allocate(pFx(nprtl_save_this), pFy(nprtl_save_this), pFz(nprtl_save_this))
           
 		  if(save_prtl_local_fld) then
 			  
@@ -251,17 +304,20 @@ contains
           call h5fclose_f(fid,err)
           call h5close_f(err)
 		  
-		  deallocate(pFx,pFy,pFz)
-		  deallocate(x,y,z)
+		deallocate(pFx,pFy,pFz)
+		deallocate(x,y,z)
+          deallocate(save_flag)
+          deallocate(prtl_arr_size_all)
 		  
-		  if(proc.eq.0) call SaveLimits(fname,psave_lims)
+		call MPI_Barrier(MPI_COMM_WORLD)
+          if(proc.eq.0) call SaveLimits(fname,psave_lims)
                              
      end subroutine save_particles
 	 
      subroutine save_particles_real_arr_collective(size,var,vname)
-		  integer                        :: size
-		  real, dimension(size)          :: var
-		  character (len=*)              :: vname
+		integer                        :: size
+		real, dimension(size)          :: var
+		character (len=*)              :: vname
           integer :: vid
           INTEGER(HSIZE_T), dimension(1) :: local_data_dim
           INTEGER(HID_T) :: dspace_this
@@ -355,9 +411,9 @@ contains
         chunk_dim3(2)=min(256,(yf-yi)/fsave_ratio+1)
         chunk_dim3(3)=1
 #else
-        chunk_dim3(1)=min(64,nx/fsave_ratio+1)
-        chunk_dim3(2)=min(64,ny/fsave_ratio+1)
-        chunk_dim3(3)=min(64,nz/fsave_ratio+1)
+        chunk_dim3(1)=min(64,(xf-xi)/fsave_ratio+1)
+        chunk_dim3(2)=min(64,(yf-yi)/fsave_ratio+1)
+        chunk_dim3(3)=min(64,(zf-zi)/fsave_ratio+1)
 #endif
 		
 
@@ -386,9 +442,9 @@ contains
 
           if(save_density) call SaveDenAllFlv(1,'D')
 
-          if(save_ch_flux_fld) call SaveFluxAllFlv(1,'Jx','Jy','Jz')
+          if(save_ch_flux_fld) call SaveFluxAllFlv(1,'Vx','Vy','Vz')
 		  
-		  if(save_velsq_fld) call SaveFluxAllFlv(2,'V2x','V2y','V2z')
+		if(save_velsq_fld) call SaveFluxAllFlv(2,'V2x','V2y','V2z')
 
           if(save_EdotV_fld) call SaveFluxAllFlv(3,'ExVx','EyVy','EzVz')
 
@@ -403,7 +459,8 @@ contains
           call h5close_f(err) 
           deallocate(fdata) ! fdata is allocated in GetSizeofCollectFld, at the begining of the fields data writing operation 
 		  
-		  if(proc.eq.0) call SaveFldDataParam(fname,xi,xf,yi,yf,zi,zf,fsave_ratio)              
+          call MPI_Barrier(MPI_COMM_WORLD)
+          if(proc.eq.0) call SaveFldDataParam(fname,xi,xf,yi,yf,zi,zf,fsave_ratio)              
      end subroutine save_field_collective
      
      subroutine save_fields_arr_collective(arr,vname,avgid)
@@ -432,7 +489,7 @@ contains
           call h5pcreate_f(H5P_DATASET_XFER_F, plist, err) 
           call h5pset_dxpl_mpio_f(plist, H5FD_MPIO_COLLECTIVE_F, err)          
           call h5dwrite_f(dset_id, H5T_NATIVE_REAL,fdata, data_dim3, err, file_space_id = dspace_this, mem_space_id = memspace, xfer_prp = plist)     
-		  call h5pclose_f(plist, err)
+		call h5pclose_f(plist, err)
           call h5sclose_f(dspace_this,err)
           call h5dclose_f(dset_id,err)
           
@@ -510,7 +567,7 @@ contains
 		  
 		  call h5sclose_f(dspace_id, err)
 		  call h5fclose_f(fid,err)
-	      call h5close_f(err)
+	       call h5close_f(err)
 	 end subroutine SaveFldDataParam
 	 
 	 !include limits of the spatial doamin in the outfile file
@@ -553,7 +610,7 @@ subroutine save_prtl_mean
      real, dimension(Nflvr):: meanKE, meanExVx,meanEyVy,meanEzVz
      real, dimension(Nflvr)::meanPx2,meanPy2,meanPz2
      real, dimension(Nflvr,Speed_spec_binlen)::SpeedBin_meanExVx,SpeedBin_meanEyVy,SpeedBin_meanEzVz
-     !real, dimension(Nflvr)::meanLR
+     !real, dimension(Nflvr) :: meanLR
 
      call SumPrtlQntyMain
      call ReduceSumPrtlQntyAll
@@ -617,46 +674,49 @@ end subroutine save_prtl_mean
      
 	 subroutine SaveGammaSpecInSubDomain(xi,xf,yi,yf,zi,zf,FileName)
 	     real(dbpsn)   :: xi,xf,yi,yf,zi,zf
-         character(len=*) :: FileName
-		 integer          :: err
+          character(len=*) :: FileName
+		integer          :: err
 		  
-		 call CalcGmaxGminLocalInSubDomain(xi,xf,yi,yf,zi,zf)      
-         call GetGmaxGminGlobal
-         call CreateGammaSpecBin
-         call CalcGammaSpectrumInSubDomain(xi,xf,yi,yf,zi,zf)
-         call ReduceGammaSpectrum
+		 call CalcGmaxLocalInSubDomain(xi,xf,yi,yf,zi,zf)      
+           call GetGmaxGlobal
+           call InitGammaSpec
+           call CalcGammaSpectrumInSubDomain(xi,xf,yi,yf,zi,zf)
+           call AllReduceGammaSpectrum
 		 if(proc.eq.0) then 
 	          call h5open_f(err)     
 	          call h5fcreate_f(FileName,H5F_ACC_TRUNC_F,fid, err)
-		      call WriteArrReal1(FileID=fid,sizex=Gamma_spec_binlen,var=Gamma_spec_bin,varname='gbin')
-		      call WriteArrReal2(FileID=fid,sizex=Nflvr,sizey=Gamma_spec_binlen,var=spec_gamma,varname='gspec')
+		     call WriteArrReal1(FileID=fid,sizex=Gamma_spec_binlen,var=Gamma_spec_bin,varname='gbin')
+		     call WriteArrReal2(FileID=fid,sizex=Nflvr,sizey=Gamma_spec_binlen,var=spec_gamma,varname='gspec')
 	          call h5fclose_f(fid,err)
 	          call h5close_f(err)  
 		 end if
+           deallocate( spec_gamma, Gamma_spec_bin )
 	 end subroutine SaveGammaSpecInSubDomain
 
 	 subroutine SaveSpeedSpecInSubDomain(xi,xf,yi,yf,zi,zf,FileName)
 	     real(dbpsn)   :: xi,xf,yi,yf,zi,zf
-         character(len=*) :: FileName
-		 integer          :: err
+          character(len=*) :: FileName
+		integer          :: err
 		  
-         call CalcSpeedSpectrumInSubDomain(xi,xf,yi,yf,zi,zf)
-         call ReduceSpeedSpectrum
-		 if(proc.eq.0) then 
+          call CalcSpeedSpectrumInSubDomain(xi,xf,yi,yf,zi,zf)
+          call AllReduceSpeedSpectrum
+		if(proc.eq.0) then 
 	          call h5open_f(err)     
 	          call h5fopen_f(FileName,H5F_ACC_RDWR_F,fid, err)
-		      call WriteArrReal1(FileID=fid,sizex=Speed_spec_binlen,var=Speed_spec_bin,varname='vbin')
-		      call WriteArrReal2(FileID=fid,sizex=Nflvr,sizey=Speed_spec_binlen,var=spec_speed,varname='vspec')
+		     call WriteArrReal1(FileID=fid,sizex=Speed_spec_binlen,var=Speed_spec_bin,varname='vbin')
+		     call WriteArrReal2(FileID=fid,sizex=Nflvr,sizey=Speed_spec_binlen,var=spec_speed,varname='vspec')
 	          call h5fclose_f(fid,err)
 	          call h5close_f(err)  
-		 end if
+		end if
 	 end subroutine SaveSpeedSpecInSubDomain
 !--------------------------------------End of spectrum subroutines------------------------------------------------------------------
 
 
 
      subroutine SaveParameters
-		 integer :: sim_dim, cord_cyl
+		 integer :: sim_dim, cord_cyl, i
+           integer, dimension(:), allocatable :: int_arr
+
 		 fname=trim(data_folder)//"/param"
          call h5open_f(err)
          rank=1
@@ -674,14 +734,24 @@ end subroutine save_prtl_mean
 		 call WriteReal(fid,dspace_id,'qmi',qmi)
 		 call WriteReal(fid,dspace_id,'massi',massi)
 		 call WriteReal(fid,dspace_id,'masse',masse)
-         call WriteReal(fid,dspace_id,'mi_me',mi_me)
-         call WriteReal(fid,dspace_id,'gamma0',g0)
-         call WriteINT(fid,dspace_id,'epc',epc)
-	     call WriteINT(fid,dspace_id,'psave_ratio',psave_ratio)
-	     call WriteINT(fid,dspace_id,'Nflvr',Nflvr)
-         call WriteReal(fid,dspace_id,'extBx',Bx_ext0)
-         call WriteReal(fid,dspace_id,'extBy',By_ext0)
-	     call WriteReal(fid,dspace_id,'extBz',Bz_ext0)
+           call WriteReal(fid,dspace_id,'mi_me',mi_me)
+           call WriteReal(fid,dspace_id,'gamma0',g0)
+           call WriteINT(fid,dspace_id,'epc',epc)
+	      call WriteINT(fid,dspace_id,'psave_ratio',psave_ratio)
+	      call WriteINT(fid,dspace_id,'Nflvr',Nflvr)
+           call WriteReal(fid,dspace_id,'extBx',Bx_ext0)
+           call WriteReal(fid,dspace_id,'extBy',By_ext0)
+	      call WriteReal(fid,dspace_id,'extBz',Bz_ext0)
+           call WriteReal(fid,dspace_id,'ne0',ne0)
+
+           call WriteReal(fid,dspace_id,'grid_dx',grid_dx)
+           call WriteReal(fid,dspace_id,'grid_dy',grid_dy)
+           call WriteReal(fid,dspace_id,'grid_dz',grid_dz)
+           call WriteReal(fid,dspace_id,'cell_volume',cell_volume)
+           call WriteINT(fid,dspace_id,'epc_x',epc_x)
+           call WriteINT(fid,dspace_id,'epc_y',epc_y)
+           call WriteINT(fid,dspace_id,'epc_z',epc_z)
+
        
          sim_dim = 3
 #ifdef twoD
@@ -698,11 +768,16 @@ end subroutine save_prtl_mean
 		 call h5sclose_f(dspace_id,err)
 		 
          
-		 call WriteArrReal1(FileID=fid,sizex=Nflvr,var=real(flvrqm),varname='flvrqm')
-         call WriteArrReal1(FileID=fid,sizex=Nflvr,var=real(FlvrCharge),varname='FlvrCharge')
+		call WriteArrReal1(FileID=fid,sizex=Nflvr,var=real(flvrqm),varname='flvrqm')
+          call WriteArrReal1(FileID=fid,sizex=Nflvr,var=real(FlvrCharge),varname='FlvrCharge')
  	     call WriteINT1(fid,Nflvr,'FlvrSaveFldData',FlvrSaveFldData)
  	     call WriteINT1(fid,Nflvr,'FlvrType',FlvrType)
  	     call WriteINT1(fid,Nflvr,'FlvrSaveRatio',FlvrSaveRatio)
+
+          allocate(int_arr(Nflvr))
+          int_arr = [(flvr_prpt(i)%Z_nucleus , i=1, Nflvr)]
+          call WriteINT1(fid,Nflvr,'ionization_z_nucleus',int_arr)
+          deallocate(int_arr)
 	  
          call h5fclose_f(fid,err)
          call h5close_f(err)
@@ -925,10 +1000,7 @@ subroutine save_particles_restart
      call h5dcreate_f(fid,'flvp',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,flvp(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
-     call h5dcreate_f(fid,'tagp',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,tagp(1:used_prtl_arr_size),data_dim1,err)
-     call h5dclose_f(dset_id,err)
-	 call h5dcreate_f(fid,'xp',h5psn,dspace_id,dset_id,err)
+	call h5dcreate_f(fid,'xp',h5psn,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,h5psn,xp(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
      call h5dcreate_f(fid,'yp',h5psn,dspace_id,dset_id,err)
@@ -949,8 +1021,24 @@ subroutine save_particles_restart
      call h5dcreate_f(fid,'var1p',h5psn,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,h5psn,var1p(1:used_prtl_arr_size),data_dim1,err)
      call h5dclose_f(dset_id,err)
+
+     call h5dcreate_f(fid,'tagp',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,tagp(1:used_prtl_arr_size),data_dim1,err)
+     call h5dclose_f(dset_id,err)
+     call h5dcreate_f(fid,'procp',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,procp(1:used_prtl_arr_size),data_dim1,err)
+     call h5dclose_f(dset_id,err)
+
+     call h5dcreate_f(fid,'qmp',h5psn,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,h5psn,qmp(1:used_prtl_arr_size),data_dim1,err)
+     call h5dclose_f(dset_id,err)
+     call h5dcreate_f(fid,'wtp',h5psn,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,h5psn,wtp(1:used_prtl_arr_size),data_dim1,err)
+     call h5dclose_f(dset_id,err)
+
+
      
-	 call h5sclose_f(dspace_id,err)	 
+	call h5sclose_f(dspace_id,err)	 
      call h5fclose_f(fid,err)
 end subroutine save_particles_restart
 
@@ -961,6 +1049,7 @@ subroutine save_param_restart
 	 real(dbpsn), dimension(6) :: BC_pos_fld, BC_pos_prtl
 	 real(psn), dimension(6) :: BC_speed
 	 character(len=16):: vname
+      integer, dimension(:), allocatable :: int_arr
 	 
 	 write(str1,'(I0)') t
      write(str2,'(I0)') proc
@@ -1054,8 +1143,11 @@ subroutine save_param_restart
      case(kind(1.0e0))
         call h5tcopy_f(H5T_NATIVE_REAL,h5psn,err)
      end select
+     
      data_dim1(1)=Nflvr	 
- 	 call h5screate_simple_f(rank,data_dim1,dspace_id,err)
+ 	
+     call h5screate_simple_f(rank,data_dim1,dspace_id,err)
+     
      call h5dcreate_f(fid,'flvrqm',h5psn,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,h5psn,flvrqm,data_dim1,err)
      call h5dclose_f(dset_id,err) 
@@ -1071,12 +1163,32 @@ subroutine save_param_restart
      call h5dcreate_f(fid,'FlvrSaveRatio',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,FlvrSaveRatio,data_dim1,err)
      call h5dclose_f(dset_id,err) 
-     call h5dcreate_f(fid,'TagBlock',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
-     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,TagBlock,data_dim1,err)
-     call h5dclose_f(dset_id,err) 
      call h5dcreate_f(fid,'CurrentTagID',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
      call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,CurrentTagID,data_dim1,err)
-     call h5dclose_f(dset_id,err) 	 
+     call h5dclose_f(dset_id,err)
+     call h5dcreate_f(fid,'CurrentTagProcID',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,CurrentTagProcID,data_dim1,err)
+     call h5dclose_f(dset_id,err) 
+     
+     !save other flavor properties 
+     allocate(int_arr(Nflvr))
+     int_arr = [(flvr_prpt(i)%ionization , i=1, Nflvr)]
+     call h5dcreate_f(fid,'ionization_type',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,int_arr,data_dim1,err)
+     call h5dclose_f(dset_id,err) 
+
+     int_arr = [(flvr_prpt(i)%ionization_elc_flv , i=1, Nflvr)]
+     call h5dcreate_f(fid,'ionization_elc_flv',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,int_arr,data_dim1,err)
+     call h5dclose_f(dset_id,err) 
+
+     int_arr = [(flvr_prpt(i)%Z_nucleus , i=1, Nflvr)]
+     call h5dcreate_f(fid,'ionization_z_nucleus',H5T_NATIVE_INTEGER,dspace_id,dset_id,err)
+     call h5dwrite_f(dset_id,H5T_NATIVE_INTEGER,int_arr,data_dim1,err)
+     call h5dclose_f(dset_id,err) 
+     deallocate(int_arr)
+
+     
      call h5sclose_f(dspace_id,err)
 	      
      call h5fclose_f(fid,err)
