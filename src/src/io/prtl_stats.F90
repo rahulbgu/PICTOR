@@ -1,0 +1,280 @@
+!-----------------------------------------------------
+!subroutines used to generate vel and gamma spectrum
+!-----------------------------------------------------
+module prtl_stats
+  use parameters
+  use vars
+	use communication
+  use interpolation, only : InterpEMfield
+	implicit none 
+	
+    real(dbpsn),dimension(:,:), allocatable:: spec_gamma 
+    real,dimension(:),   allocatable:: Gamma_spec_bin
+    integer :: Gamma_spec_binlen = 0
+    real(psn) :: gmax_allflv = 1.0_psn
+    
+	  !varaibles used to genrate prtl velocity spectrum 
+    real(dbpsn),dimension(:,:), allocatable:: spec_speed 
+    real,dimension(:),   allocatable:: Speed_spec_bin
+    integer :: Speed_spec_binlen = 0
+	
+    !varaibles used to generate mean of various prtl averaged quantities 
+    real(dbpsn),dimension(:), allocatable :: SumNprtl,SumQ, SumQxKE, SumQxExVx,SumQxEyVy,SumQxEzVz,SumQxPx2,SumQxPy2,SumQxPz2
+    real(dbpsn),dimension(:,:),allocatable :: Speed_SumQxExVx,Speed_SumQxEyVy,Speed_SumQxEzVz 
+    !real(dbpsn),dimension(:), allocatable  :: SumQxLR
+contains 
+
+
+subroutine InitPrtlStatVars
+	  if(allocated(spec_speed)) call DeallocatePrtlStatVars
+     call InitSpeedSpecBin !defined in savedata_routines
+     allocate(SumNprtl(Nflvr),SumQ(Nflvr),SumQxKE(Nflvr))  !used for saving prtl averaged info  
+     allocate(SumQxExVx(Nflvr),SumQxEyVy(Nflvr),SumQxEzVz(Nflvr))
+     allocate(SumQxPx2(Nflvr),SumQxPy2(Nflvr),SumQxPz2(Nflvr))
+     allocate(Speed_SumQxExVx(Nflvr,Speed_spec_binlen),Speed_SumQxEyVy(Nflvr,Speed_spec_binlen),Speed_SumQxEzVz(Nflvr,Speed_spec_binlen)) 
+    !allocate(SumQxLR(Nflvr))
+end subroutine InitPrtlStatVars
+
+subroutine DeallocatePrtlStatVars
+	deallocate(spec_speed,Speed_spec_bin)
+	
+  deallocate(SumNprtl,SumQ,SumQxKE) 
+  deallocate(SumQxExVx,SumQxEyVy,SumQxEzVz)
+  deallocate(SumQxPx2,SumQxPy2,SumQxPz2)
+  deallocate(Speed_SumQxExVx,Speed_SumQxEyVy,Speed_SumQxEzVz) 
+ 	
+end subroutine DeallocatePrtlStatVars
+		
+!-------------------------------------------------------------------------------------------------
+!Allocate arrays according to the current bin size and range to be covered 
+!-------------------------------------------------------------------------------------------------
+subroutine InitGammaSpec     
+  integer :: i
+  
+  Gamma_spec_binlen= ceiling(log(gmax_allflv)/Gamma_spec_binwidth) +2
+  !if(proc.eq.0) print*,'Gamma spec binlen',Gamma_spec_binlen,'gmax',gmax_allflv,'gmin',gmin_allflv
+  
+  if(allocated(spec_gamma)) deallocate(spec_gamma,Gamma_spec_bin)
+  allocate(spec_gamma(Nflvr,Gamma_spec_binlen),Gamma_spec_bin(Gamma_spec_binlen)) 
+	
+  do i=1,Gamma_spec_binlen
+	      Gamma_spec_bin(i)=exp( real(i-1,psn)*Gamma_spec_binwidth )
+	end do
+  spec_gamma = 0.0_psn
+
+end subroutine InitGammaSpec
+
+
+subroutine InitSpeedSpecBin     
+  integer :: i
+  Speed_spec_binlen=ceiling(1.0_psn/Speed_spec_binwidth) +2
+  allocate(spec_speed(Nflvr,Speed_spec_binlen),Speed_spec_bin(Speed_spec_binlen)) 
+  do i=1,Speed_spec_binlen
+      Speed_spec_bin(i)=Speed_spec_binwidth*real(i-1,psn)
+  end do
+end subroutine InitSpeedSpecBin
+
+!-------------------------------------------------------------------------------------------------
+!spectrum of particles in a subdomain, x1,..  are in global cordinate 
+!-------------------------------------------------------------------------------------------------
+subroutine CalcGmaxLocalInSubDomain(xi,xf,yi,yf,zi,zf)
+  real(dbpsn)   :: xi,xf,yi,yf,zi,zf
+  real(psn)     :: x1,x2,y1,y2,z1,z2
+  integer   :: n
+  real(psn) :: gamma
+  
+  call DomainBoundary_GlobalToLocalCord(xi,xf,yi,yf,zi,zf,x1,x2,y1,y2,z1,z2)
+  
+  gmax_allflv  = 1.0_psn
+  do n=1,used_prtl_arr_size
+
+       if(flvp(n).eq.0) cycle
+	     if((xp(n).lt.x1.or.xp(n).gt.x2).or.(yp(n).lt.y1.or.yp(n).gt.y2).or.(zp(n).lt.z1.or.zp(n).gt.z2)) cycle
+      
+       gamma=sqrt(1.0_psn+up(n)**2+vp(n)**2+wp(n)**2)
+       if(gamma.gt.gmax_allflv) gmax_allflv=gamma
+  
+  end do
+end subroutine CalcGmaxLocalInSubDomain
+
+subroutine CalcGammaSpectrumInSubDomain(xi,xf,yi,yf,zi,zf)
+  real(dbpsn)   :: xi,xf,yi,yf,zi,zf
+  real(psn)   :: x1,x2,y1,y2,z1,z2
+  integer :: n,ch,bin_ind
+  real(psn) ::gamma
+  
+  call DomainBoundary_GlobalToLocalCord(xi,xf,yi,yf,zi,zf,x1,x2,y1,y2,z1,z2)
+  
+  do n=1,used_prtl_arr_size
+
+       if(flvp(n).eq.0) cycle
+	     if((xp(n).lt.x1.or.xp(n).gt.x2).or.(yp(n).lt.y1.or.yp(n).gt.y2).or.(zp(n).lt.z1.or.zp(n).gt.z2)) cycle
+       
+       ch=flvp(n)
+       gamma=sqrt(1.0_psn+up(n)**2+vp(n)**2+wp(n)**2)
+       bin_ind=floor((log(gamma))/Gamma_spec_binwidth) +1
+       spec_gamma(ch,bin_ind)=spec_gamma(ch,bin_ind) + abs(qp(n))
+  
+  end do
+end subroutine CalcGammaSpectrumInSubDomain
+
+subroutine CalcSpeedSpectrumInSubDomain(xi,xf,yi,yf,zi,zf)
+  real(dbpsn)  :: xi,xf,yi,yf,zi,zf
+  real(psn)    :: x1,x2,y1,y2,z1,z2
+  integer :: n,ch,bin_ind
+  real(psn) ::speed
+  
+  call DomainBoundary_GlobalToLocalCord(xi,xf,yi,yf,zi,zf,x1,x2,y1,y2,z1,z2)
+  
+  spec_speed=0
+  do n=1,used_prtl_arr_size
+       if(flvp(n).eq.0) cycle
+	     if((xp(n).lt.x1.or.xp(n).gt.x2).or.(yp(n).lt.y1.or.yp(n).gt.y2).or.(zp(n).lt.z1.or.zp(n).gt.z2)) cycle
+       ch=flvp(n)
+       speed=sqrt(1.0_psn - 1.0_psn/(1.0_psn+up(n)*up(n)+vp(n)*vp(n)+wp(n)*wp(n)))
+       bin_ind=floor(speed/Speed_spec_binwidth) +1
+       spec_speed(ch,bin_ind)=spec_speed(ch,bin_ind)+abs(qp(n))
+  end do
+end subroutine CalcSpeedSpectrumInSubDomain
+
+subroutine DomainBoundary_GlobalToLocalCord(xi,xf,yi,yf,zi,zf,x1,x2,y1,y2,z1,z2)
+    real(dbpsn), intent(IN)  :: xi,xf,yi,yf,zi,zf
+    real(psn), intent(INOUT) :: x1,x2,y1,y2,z1,z2
+    x1=xi-xborders(procxind)+3
+    x2=xf-xborders(procxind)+3
+    y1=yi-yborders(procyind)+3
+    y2=yf-yborders(procyind)+3 
+#ifdef twoD
+    z1=1+zi !range of local cordinate is [1,2]
+	  z2=1+zf
+#else 	 	 
+    z1=zi-zborders(proczind)+3
+    z2=zf-zborders(proczind)+3
+#endif 
+end subroutine DomainBoundary_GlobalToLocalCord
+	 
+!-------------------------------------------------------------------------------------------------------
+! The following subroutines are used to computed mean values of several particle related quantities, such as mean KE
+!-------------------------------------------------------------------------------------------------------
+
+subroutine SumPrtlQntyMain
+  integer :: n,bin_ind
+  real(psn) :: gamma,invg,speed
+  real(psn) :: pEx,pEy,pEz,pBx,pBy,pBz
+
+  SumNprtl=0
+  SumQ=0
+  SumQxKE=0
+  SumQxExVx=0
+  SumQxEyVy=0
+  SumQxEzVz=0
+  SumQxPx2=0
+  SumQxPy2=0
+  SumQxPz2=0
+  Speed_SumQxExVx=0
+  Speed_SumQxEyVy=0
+  Speed_SumQxEzVz=0
+  do n=1,used_prtl_arr_size
+       if(flvp(n).eq.0) cycle
+
+       SumNprtl(flvp(n))=SumNprtl(flvp(n))+1
+       SumQ(flvp(n))=SumQ(flvp(n))+qp(n)
+       gamma=sqrt(1.0_psn+up(n)**2+vp(n)**2+wp(n)**2)
+       invg=1.0_psn/gamma
+       SumQxKE(flvp(n))=SumQxKE(flvp(n))+qp(n)*(gamma-1) ! kinetic energy is in units of m_0c^2 (m_0=rest mass)
+  
+       call InterpEMfield(xp(n),yp(n),zp(n),pEx,pEy,pEz,pBx,pBy,pBz,Ex,Ey,Ez,Bx,By,Bz)
+       SumQxExVx(flvp(n))=SumQxExVx(flvp(n))+qp(n)*up(n)*invg*pEx
+       SumQxEyVy(flvp(n))=SumQxEyVy(flvp(n))+qp(n)*vp(n)*invg*pEy
+       SumQxEzVz(flvp(n))=SumQxEzVz(flvp(n))+qp(n)*wp(n)*invg*pEz
+       SumQxPx2(flvp(n)) =SumQxPx2(flvp(n)) +qp(n)*up(n)**2
+       SumQxPy2(flvp(n)) =SumQxPy2(flvp(n)) +qp(n)*vp(n)**2
+       SumQxPz2(flvp(n)) =SumQxPz2(flvp(n)) +qp(n)*wp(n)**2
+  
+       speed=sqrt((gamma-1.0_psn)*(gamma+1.0_psn))*invg
+       bin_ind= floor(speed/Speed_spec_binwidth)+1
+       Speed_SumQxExVx(flvp(n),bin_ind)=Speed_SumQxExVx(flvp(n),bin_ind)+qp(n)*up(n)*invg*pEx
+       Speed_SumQxEyVy(flvp(n),bin_ind)=Speed_SumQxEyVy(flvp(n),bin_ind)+qp(n)*vp(n)*invg*pEy
+       Speed_SumQxEzVz(flvp(n),bin_ind)=Speed_SumQxEzVz(flvp(n),bin_ind)+qp(n)*wp(n)*invg*pEz          
+  end do     
+             
+end subroutine SumPrtlQntyMain 
+subroutine CalcSpeedBinMeanEV(ArrSum,ArrMean)
+  real(dbpsn), dimension(Nflvr,Speed_spec_binlen), intent(in):: ArrSum
+  real, dimension(Nflvr,Speed_spec_binlen),intent(inout) :: ArrMean 
+  integer :: i,j
+  do j=1,Speed_spec_binlen
+     do i=1,Nflvr
+           if(spec_speed(i,j).eq.0) then 
+              ArrMean(i,j)=0
+            else 
+               ArrMean(i,j)=real(ArrSum(i,j)/spec_speed(i,j))                    
+            end if 
+     end do
+  end do   
+end subroutine CalcSpeedBinMeanEV
+
+
+!---------------------------------------------------------------------------------------------------------------------------------
+!   subroutines to communicate data related to spectrum
+!---------------------------------------------------------------------------------------------------------------------------------
+
+       subroutine GetGmaxGlobal
+          call MPI_ALLREDUCE( MPI_IN_PLACE , gmax_allflv, 1, mpi_psn, MPI_MAX, MPI_COMM_WORLD)
+       end subroutine GetGmaxGlobal
+  
+       subroutine AllReduceGammaSpectrum
+           call MPI_AllREDUCE(MPI_IN_PLACE, spec_gamma, Nflvr*Gamma_spec_binlen, MPI_DOUBLE_PRECISION, MPI_SUM , MPI_COMM_WORLD)
+       end subroutine AllReduceGammaSpectrum
+            
+       subroutine AllReduceSpeedSpectrum
+           call MPI_AllREDUCE(MPI_IN_PLACE, spec_speed, Nflvr*Speed_spec_binlen, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD)
+       end subroutine AllReduceSpeedSpectrum
+	   
+!----------------------------------------------------------------------------------------------------------------
+! Following subroutines are used to communicate data related to "prtl_average" 
+!----------------------------------------------------------------------------------------------------------------
+subroutine ReduceSumPrtlQntyAll
+    call ReduceReal8Arr1(sumNprtl,Nflvr)
+    call ReduceReal8Arr1(SumQ,Nflvr)
+    call ReduceReal8Arr1(SumQxKE,Nflvr)
+    call ReduceReal8Arr1(SumQxExVx,Nflvr)
+    call ReduceReal8Arr1(SumQxEyVy,Nflvr)
+    call ReduceReal8Arr1(SumQxEzVz,Nflvr)
+    call ReduceReal8Arr1(SumQxPx2,Nflvr)
+    call ReduceReal8Arr1(SumQxPy2,Nflvr)
+    call ReduceReal8Arr1(SumQxPz2,Nflvr)
+    call ReduceReal8Arr2(Speed_SumQxExVx,Nflvr,Speed_spec_binlen)
+    call ReduceReal8Arr2(Speed_SumQxEyVy,Nflvr,Speed_spec_binlen)
+    call ReduceReal8Arr2(Speed_SumQxEzVz,Nflvr,Speed_spec_binlen)
+    !call ReduceReal8Arr1(SumQxLR,Nflvr)
+
+end subroutine ReduceSumPrtlQntyAll
+
+
+!--------------------------------------------------------------------------------------------------------------
+! Following subroutines are useful for reducing arrays on master proc. 
+!--------------------------------------------------------------------------------------------------------------
+subroutine ReduceReal8Arr1(Arr,sizex)
+    integer :: sizex
+    real(dbpsn), dimension(sizex) :: Arr
+    integer :: mpi_err
+    if(proc.eq.0) then 
+       call MPI_REDUCE(MPI_IN_PLACE,Arr,sizex,MPI_DOUBLE_PRECISION,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
+    else 
+       call MPI_REDUCE(Arr,  Arr,sizex,MPI_DOUBLE_PRECISION,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
+    end if
+end subroutine ReduceReal8Arr1
+subroutine ReduceReal8Arr2(Arr,sizex,sizey)
+    integer :: sizex,sizey
+    real(dbpsn), dimension(sizex,sizey) :: Arr
+    integer :: mpi_err
+    if(proc.eq.0) then 
+       call MPI_REDUCE(MPI_IN_PLACE,Arr,sizex*sizey,MPI_DOUBLE_PRECISION,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
+    else 
+       call MPI_REDUCE(Arr,  Arr,sizex*sizey,MPI_DOUBLE_PRECISION,mpi_sum,0,MPI_COMM_WORLD,mpi_err)
+    end if
+end subroutine ReduceReal8Arr2 
+	   
+	
+end module prtl_stats
